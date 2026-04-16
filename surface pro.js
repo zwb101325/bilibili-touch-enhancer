@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Bilibili Surface
+// @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
 // @version      1.6.8
-// @description  单指单击切换控制栏显示/隐藏，双击播放/暂停，长按倍速（带三箭头闪烁提示），滑动进度自适应视频时长，左右半屏上下滑亮度/音量
+// @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
 // @icon         https://www.bilibili.com/favicon.ico
