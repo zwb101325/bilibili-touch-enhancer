@@ -41,8 +41,8 @@
 ## 📦 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. 访问 [Greasy Fork 脚本页面](https://greasyfork.org/zh-CN/scripts/573952)
-3. 点击「安装此脚本」
+2. 访问 [本脚本页面](https://greasyfork.org/zh-CN/scripts/573952)
+4. 点击「安装此脚本」
 
 
 ## 💻 兼容性
