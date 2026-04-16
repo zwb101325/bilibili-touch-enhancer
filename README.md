@@ -1,8 +1,11 @@
 # Bilibili Touch Enhancer
 
-为 Surface/Yoga/MateBook 等触屏 Windows 设备优化的 Bilibili 网站播放器手势控制脚本，支持触屏和鼠标操作。
+> 为触屏设备优化的 Bilibili 网页播放器手势增强脚本（支持 Tampermonkey）  
+> A touch gesture enhancer userscript for Bilibili web player on touch-enabled devices.
 
-## 功能特性
+---
+
+## ✨ 功能特性
 
 ### 手势操作
 
@@ -12,10 +15,12 @@
 | **单指双击** | 播放/暂停 | — |
 | **单指长按** | 进入倍速播放 | 倍速闪烁动画 |
 | **横向滑动** | 调节视频进度 | 显示当前时间 / 总时长 |
-| **左半屏纵向滑动** | 调节亮度 | 显示亮度百分比 (0-100%) |
-| **右半屏纵向滑动** | 调节音量 | 显示音量百分比 (0-100%) |
+| **左半屏纵向滑动** | 调节亮度 | 显示亮度百分比 (0–100%) |
+| **右半屏纵向滑动** | 调节音量 | 显示音量百分比 (0–100%) |
 
-### 参数配置
+---
+
+## ⚙️ 参数配置
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -25,10 +30,44 @@
 | `HORIZONTAL_SENSITIVITY` | 0.7 | 横向滑动灵敏度 |
 | `VERTICAL_SENSITIVITY` | 0.5 | 纵向滑动灵敏度 |
 
-## 安装
+---
 
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. 访问 [Greasy Fork 脚本页面](https://greasyfork.org/zh-CN/scripts/573952-bilibili-surface)
-3. 点击"安装此脚本"
+## 🚀 使用说明
 
-## 使用方法
+在 Bilibili 视频播放页面中，直接使用触屏或鼠标手势操作：
+
+- 点击：显示 / 隐藏控制栏  
+- 双击：播放 / 暂停  
+- 长按：倍速播放  
+- 横向滑动：控制视频进度  
+- 左侧上下滑：调节亮度  
+- 右侧上下滑：调节音量  
+
+---
+
+## 📦 安装
+
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/)
+2. 打开脚本页面：  
+   https://greasyfork.org/zh-CN/scripts/573952-bilibili-surface
+3. 点击「安装此脚本」
+
+## 💻 兼容性
+
+- 适用于 **Bilibili 网页播放器**
+- 支持 **Edge / Chrome 浏览器**
+- 适用于触屏设备（Surface / Yoga / MateBook 等）
+- 同样支持鼠标操作
+- 依赖当前 B站 DOM 结构，如页面更新可能失效
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+## ⭐ 支持项目
+
+如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
