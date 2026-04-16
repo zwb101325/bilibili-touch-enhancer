@@ -3,7 +3,6 @@
 > 为触屏设备优化的 Bilibili 网页播放器手势增强脚本（支持 Tampermonkey）  
 > A touch gesture enhancer userscript for Bilibili web player on touch-enabled devices.
 
----
 
 ## ✨ 功能特性
 
@@ -18,7 +17,6 @@
 | **左半屏纵向滑动** | 调节亮度 | 显示亮度百分比 (0–100%) |
 | **右半屏纵向滑动** | 调节音量 | 显示音量百分比 (0–100%) |
 
----
 
 ## ⚙️ 参数配置
 
@@ -30,7 +28,6 @@
 | `HORIZONTAL_SENSITIVITY` | 0.7 | 横向滑动灵敏度 |
 | `VERTICAL_SENSITIVITY` | 0.5 | 纵向滑动灵敏度 |
 
----
 
 ## 🚀 使用说明
 
@@ -43,7 +40,6 @@
 - 左侧上下滑：调节亮度  
 - 右侧上下滑：调节音量  
 
----
 
 ## 📦 安装
 
@@ -51,6 +47,7 @@
 2. 打开脚本页面：  
    https://greasyfork.org/zh-CN/scripts/573952-bilibili-surface
 3. 点击「安装此脚本」
+
 
 ## 💻 兼容性
 
@@ -60,13 +57,6 @@
 - 同样支持鼠标操作
 - 依赖当前 B站 DOM 结构，如页面更新可能失效
 
----
-
-## 📄 License
-
-MIT License
-
----
 
 ## ⭐ 支持项目
 
