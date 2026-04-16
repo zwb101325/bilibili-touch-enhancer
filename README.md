@@ -1,7 +1,6 @@
 # Bilibili Touch Enhancer
 
 > 为触屏设备优化的 Bilibili 网页播放器手势增强脚本  
-> A touch gesture enhancer userscript for Bilibili web player on touch-enabled devices
 
 
 ## ✨ 功能特性
