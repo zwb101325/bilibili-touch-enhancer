@@ -25,8 +25,8 @@
 | `PRESS_DELAY` | 300 | ms | 长按触发时间 |
 | `TARGET_SPEED` | 3.0 | 倍 | 长按播放速度 |
 | `CLICK_TIMEOUT` | 200 | ms | 双击判定间隔 |
-| `HORIZONTAL_SENSITIVITY` | 0.7 | — | 横向滑动灵敏度 |
-| `VERTICAL_SENSITIVITY` | 0.5 | — | 纵向滑动灵敏度 |
+| `HORIZONTAL_SENSITIVITY` | 0.7 | 播放器宽度比例 | 横向滑动灵敏度 |
+| `VERTICAL_SENSITIVITY` | 0.5 | 播放器高度比例 | 纵向滑动灵敏度 |
 
 
 ## 🚀 使用说明
