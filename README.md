@@ -1,4 +1,4 @@
-# Bilibili Surface
+# Bilibili Touch Enhancer阅读代码，中文解释
 
 为 Surface/iPad 等触屏设备优化的 Bilibili 播放器手势控制脚本，支持鼠标操作。
 
@@ -19,11 +19,11 @@
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `HORIZONTAL_SENSITIVITY` | 0.7 | 横向滑动灵敏度 |
-| `VERTICAL_SENSITIVITY` | 0.5 | 纵向滑动灵敏度 |
 | `PRESS_DELAY` | 300ms | 长按触发时间 |
 | `TARGET_SPEED` | 3.0x | 长按倍速值 |
 | `CLICK_TIMEOUT` | 200ms | 双击判定间隔 |
+| `HORIZONTAL_SENSITIVITY` | 0.7 | 横向滑动灵敏度 |
+| `VERTICAL_SENSITIVITY` | 0.5 | 纵向滑动灵敏度 |
 
 ## 安装
 
