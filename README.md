@@ -1,4 +1,4 @@
-# Bilibili Touch Enhancer阅读代码，中文解释
+# Bilibili Touch Enhancer
 
 为 Surface/Yoga/MateBook 等触屏 Windows 设备优化的 Bilibili 网站播放器手势控制脚本，支持触屏和鼠标操作。
 
