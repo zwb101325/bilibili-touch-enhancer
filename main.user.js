@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.6.9
+// @version      1.7.4
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -12,35 +12,34 @@
 // ==/UserScript==
 
 (function() {
-    'use strict';
+    "use strict";
 
+
+    
     // ============================================================
     // #region 参数配置
     // ============================================================
     const PRESS_DELAY = 300;
     const TARGET_SPEED = 3.0;
     const CLICK_TIMEOUT = 200;
-    const HORIZONTAL_SENSITIVITY = 0.7;
-    const VERTICAL_SENSITIVITY = 0.5;
+    const TOAST_DELAY = 500;
+    const HORIZONTAL_SENS = 0.7;
+    const VERTICAL_SENS = 0.5;
+    const TOAST_ID = "gesture-toast";
+    const SHIELD_ID = "gesture-shield";
 
-    let playerArea = null;
+    let videoArea = null;
     let shield = null;
-    let video = null;
-    let div = null;
-    let iconWrap = null;
 
-    let container = null;
-    let isHidden = false;
-    let rect = null;
-    
+    let isDown = false;
+    let gestureType = "";
     let pressTimer = null;
     let clickTimer = null;
-    let isDown = false;
+    let toastTimer = null;
 
-    let originalSpeed = 1.0;
-    let gestureType = "";
-    let wasPlaying = false;
     let startVal = 0;
+    let originalSpeed = 1.0;
+    let wasPlaying = false;
 
     let startX = 0;
     let startY = 0;
@@ -56,12 +55,12 @@
 
 
     // ============================================================
-    // #region 图标svg
+    // #region 图标
     // ============================================================
 
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     style.textContent = `
-        @keyframes geminiFadeToWhite {
+        @keyframes gestureSpeedPulse {
             0%   { opacity: 1.0; filter: brightness(1.0); }
             25%  { opacity: 0.6; filter: brightness(0.6); }
             50%  { opacity: 0.3; filter: brightness(0.3); }
@@ -75,13 +74,13 @@
     const speedIcon = `
         <svg viewBox="0 0 111 66" width="34" height="20" style="overflow:visible">
             <g transform="matrix(0,3,-3,0,94.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:geminiFadeToWhite 1.2s infinite;animation-delay:0s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0s"/>
             </g>
             <g transform="matrix(0,3,-3,0,55.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:geminiFadeToWhite 1.2s infinite;animation-delay:0.18s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0.18s"/>
             </g>
             <g transform="matrix(0,3,-3,0,16.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:geminiFadeToWhite 1.2s infinite;animation-delay:0.36s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0.36s"/>
             </g>
         </svg>`;
 
@@ -107,12 +106,12 @@
     // #region 提示框
     // ============================================================
 
-    function createToast(playerArea) {
-        div = playerArea.querySelector('#gemini-clean-toast');
-        if (!div) {
-            div = document.createElement('div');
-            div.id = 'gemini-clean-toast';
-            div.style.cssText = `
+    function createToast(videoArea) {
+        let toastContainer = videoArea.querySelector("#" + TOAST_ID);
+        if (!toastContainer) {
+            toastContainer = document.createElement("div");
+            toastContainer.id = TOAST_ID;
+            toastContainer.style.cssText = `
                 display: none;
                 align-items: center;
                 gap: 8px;
@@ -139,43 +138,44 @@
                 
                 pointer-events: none;
             `;
-            playerArea.appendChild(div);
+            videoArea.appendChild(toastContainer);
         }
-        return div;
+        return toastContainer;
     }
 
 
-    function showToast(playerArea, text) {
-        div = createToast(playerArea);
-        div.innerHTML = '';
-        div.style.display = 'flex';
-
-        div.appendChild(document.createTextNode(text));
+    function showToast(videoArea, text) {
+        const toastContainer = createToast(videoArea);
+        toastContainer.innerHTML = "";
+        toastContainer.style.display = "flex";
+        toastContainer.appendChild(document.createTextNode(text));
     }
 
 
-    function showIconToast(playerArea, svg, text) {
-        div = createToast(playerArea);
-        div.innerHTML = '';
-        div.style.display = 'flex';
-  
-        iconWrap = document.createElement('span');
-        iconWrap.innerHTML = svg;
-        iconWrap.style.cssText = `
+    function showIconToast(videoArea, svg, text) {
+        const toastContainer = createToast(videoArea);
+        toastContainer.innerHTML = "";
+        toastContainer.style.display = "flex";
+
+        const iconContainer = document.createElement("span");
+        iconContainer.innerHTML = svg;
+        iconContainer.style.cssText = `
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
         `;
 
-        div.appendChild(iconWrap);
-        div.appendChild(document.createTextNode(text));
+        toastContainer.appendChild(iconContainer);
+        toastContainer.appendChild(document.createTextNode(text));
     }
 
 
-    function hideToast(playerArea) {
-        div = playerArea.querySelector('#gemini-clean-toast');
-        if (div) div.style.display = 'none';
+    function hideToast(videoArea) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+        const toastContainer = videoArea.querySelector("#" + TOAST_ID);
+        if (toastContainer) toastContainer.style.display = "none";
     }
 
     // #endregion
@@ -199,30 +199,30 @@
     }
 
 
-    function handleCtrl(playerArea) {
-        container = playerArea.closest('.bpx-player-container')
-        if (!container) return;
-        isHidden = container.getAttribute('data-ctrl-hidden');
+    function showCtrl(videoArea) {
+        const videoRect = videoArea.getBoundingClientRect();
+        sendMouseEvent(videoArea, "mousemove", videoRect.left + videoRect.width / 2, videoRect.top + videoRect.height * 0.1);
+    }
 
-        if (isHidden == 'true') {
-            showCtrl(playerArea);
-            container.setAttribute('data-ctrl-hidden', 'false');
+
+    function hideCtrl(videoArea) {
+        const videoRect = videoArea.getBoundingClientRect();
+        sendMouseEvent(videoArea, "mouseleave", videoRect.right + 10, videoRect.bottom + 10);
+    }
+
+
+    function handleCtrl(videoArea) {
+        const playerContainer = videoArea.closest(".bpx-player-container");
+        if (!playerContainer) return;
+        const isHidden = playerContainer.getAttribute("data-ctrl-hidden") === "true";
+
+        if (isHidden) {
+            showCtrl(videoArea);
+            playerContainer.setAttribute("data-ctrl-hidden", "false");
         } else {
-            hideCtrl(playerArea);
-            container.setAttribute('data-ctrl-hidden', 'true');
+            hideCtrl(videoArea);
+            playerContainer.setAttribute("data-ctrl-hidden", "true");
         }
-    }
-
-
-    function showCtrl(playerArea) {
-        rect = playerArea.getBoundingClientRect();
-        return sendMouseEvent(playerArea, 'mousemove', rect.left + rect.width / 2, rect.top + rect.height * 0.1);
-    }
-
-
-    function hideCtrl(playerArea) {
-        rect = playerArea.getBoundingClientRect();
-        return sendMouseEvent(playerArea, 'mouseleave', rect.left + rect.width / 2, rect.top + rect.height * 0.1);
     }
 
     // #endregion
@@ -233,12 +233,8 @@
     // #region 单指双击：播放/暂停
     // ============================================================
 
-    function onDoubleTap(video, playerArea) {
-        if (video.paused) {
-            video.play();
-        } else {
-            video.pause();
-        }
+    function onDoubleTap(video) {
+        video.paused ? video.play() : video.pause();
     }
 
     // #endregion
@@ -249,16 +245,16 @@
     // #region 单指长按：倍速播放
     // ============================================================
 
-    function onLongPressStart(video, playerArea) {
+    function onLongPressStart(video, videoArea) {
         originalSpeed = video.playbackRate;
         video.playbackRate = TARGET_SPEED;
-        showIconToast(playerArea, speedIcon, TARGET_SPEED.toFixed(1) + "x");
+        showIconToast(videoArea, speedIcon, TARGET_SPEED.toFixed(1) + "x");
     }
 
 
-    function onLongPressEnd(video, playerArea) {
+    function onLongPressEnd(video, videoArea) {
         video.playbackRate = originalSpeed;
-        hideToast(playerArea);
+        hideToast(videoArea);
     }
 
     // #endregion
@@ -274,8 +270,8 @@
         const min = Math.floor((seconds % 3600) / 60);
         const sec = Math.floor(seconds % 60);
 
-        if (hr > 0) return `${hr}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-        return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+        if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
     }
 
 
@@ -287,22 +283,22 @@
     }
 
 
-    function onSeek(video, playerArea, clientX) {
-        startVal = startVal + (clientX - prevX) / (playerArea.clientWidth * HORIZONTAL_SENSITIVITY) * video.duration;
+    function onSeek(video, videoArea, clientX) {
+        startVal = startVal + (clientX - prevX) / (videoArea.clientWidth * HORIZONTAL_SENS) * video.duration;
         if (startVal < 0) startVal = 0;
         if (startVal > video.duration) startVal = video.duration;
         
         prevX = clientX;
         video.currentTime = startVal;
-        showCtrl(playerArea);
-        showToast(playerArea, `${formatTime(startVal)} / ${formatTime(video.duration)}`);
+        showCtrl(videoArea);
+        showToast(videoArea, `${formatTime(startVal)} / ${formatTime(video.duration)}`);
     }
 
 
-    function onSeekEnd(video, playerArea) {
+    function onSeekEnd(video, videoArea) {
         if (wasPlaying) video.play();
-        hideCtrl(playerArea);
-        hideToast(playerArea);
+        hideCtrl(videoArea);
+        hideToast(videoArea);
     }
 
     // #endregion
@@ -315,7 +311,7 @@
 
     function getCurrentBrightness(video) {
         const filter = video.style.filter;
-        if (!filter || !filter.includes('brightness')) return 1;
+        if (!filter || !filter.includes("brightness")) return 1;
         const match = filter.match(/brightness\(([\d.]+)\)/);
         return match ? parseFloat(match[1]) : 1;
     }
@@ -327,18 +323,20 @@
     }
 
 
-    function onBrightness(video, playerArea, clientY) {
-        startVal = startVal + (prevY - clientY) / (playerArea.clientHeight * VERTICAL_SENSITIVITY);
+    function onBrightness(video, videoArea, clientY) {
+        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
         if (startVal > 1) startVal = 1;
         if (startVal < 0) startVal = 0;
 
         prevY = clientY;
         video.style.filter = `brightness(${startVal})`;
-        showIconToast(playerArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
+        showIconToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
-    function onBrightnessEnd() {
+    function onBrightnessEnd(videoArea) {
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => hideToast(videoArea), TOAST_DELAY);
     }
 
     // #endregion
@@ -355,18 +353,20 @@
     }
 
 
-    function onVolume(video, playerArea, clientY) {
-        startVal = startVal + (prevY - clientY) / (playerArea.clientHeight * VERTICAL_SENSITIVITY);
+    function onVolume(video, videoArea, clientY) {
+        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
         if (startVal > 1) startVal = 1;
         if (startVal < 0) startVal = 0;
 
         prevY = clientY;
         video.volume = startVal;
-        showIconToast(playerArea, volumeIcon, `${Math.round(startVal * 100)}%`);
+        showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
-    function onVolumeEnd() {
+    function onVolumeEnd(videoArea) {
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => hideToast(videoArea), TOAST_DELAY);
     }
 
     // #endregion
@@ -378,12 +378,12 @@
     // ============================================================
 
     // 手指按下时 → 长按
-    function handleDown(e, playerArea) {
-        if (!e.isPrimary || e.button === 2) return;
-        video = playerArea.querySelector('video');
+    function handleDown(e, videoArea) {
+        if (!e.isPrimary) return;
+        if (e.button == 2) return;
+        const video = videoArea.querySelector("video");
         if (!video) return;
 
-        // 参考脚本关键：阻止 B站 原生 touch/click 事件
         e.preventDefault();
         e.stopPropagation();
 
@@ -396,16 +396,16 @@
         pressTimer = setTimeout(() => {
             if (gestureType == "") {
                 gestureType = "speed";
-                onLongPressStart(video, playerArea);
+                onLongPressStart(video, videoArea);
             }
         }, PRESS_DELAY);
     }
 
 
     // 手指移动时 → 横向滑动/纵向滑动
-    function handleMove(e, playerArea) {
+    function handleMove(e, videoArea) {
         if (!isDown) return;
-        video = playerArea.querySelector('video');
+        const video = videoArea.querySelector("video");
         if (!video) return;
 
         deltaX = e.clientX - startX;
@@ -426,7 +426,7 @@
                 onSeekStart(video, e.clientX);
             } else {
                 // 纵向滑动 → 调节亮度/音量
-                if (startX < playerArea.clientWidth / 2) {
+                if (startX < videoArea.clientWidth / 2) {
                     gestureType = "brightness";
                     onBrightnessStart(video, e.clientY);
                 } else {
@@ -439,27 +439,27 @@
         // 手势已确定，持续更新
         if (gestureType != "") {
             if (gestureType == "seek") {
-                onSeek(video, playerArea, e.clientX);
+                onSeek(video, videoArea, e.clientX);
             } else if (gestureType == "volume") {
-                onVolume(video, playerArea, e.clientY);
+                onVolume(video, videoArea, e.clientY);
             } else if (gestureType == "brightness") {
-                onBrightness(video, playerArea, e.clientY);
+                onBrightness(video, videoArea, e.clientY);
             }
         }
     }
 
+    
     // 手指抬起时 → 单击/双击/长按结束/横向滑动结束
-    function handleUp(e, playerArea) {
+    function handleUp(e, videoArea) {
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
         }
 
-        video = playerArea.querySelector('video');
+        const video = videoArea.querySelector("video");
         if (!video) {
-            startX = 0;
-            startY = 0;
             isDown = false;
+            gestureType = "";
             return;
         }
 
@@ -471,17 +471,17 @@
         // 无滑动、无长按 → 单击或双击
         if (gestureType == "") {
             if (absX < 10 && absY < 10) {
-                if (clickTimer) {
-                    // 再次点击 → 双击
-                    clearTimeout(clickTimer);
-                    clickTimer = null;
-                    onDoubleTap(video, playerArea);
-                } else {
+                if (!clickTimer) {
                     // 首次点击 → 等待是否有第二次
                     clickTimer = setTimeout(() => {
                         clickTimer = null;
-                        handleCtrl(playerArea);
+                        handleCtrl(videoArea);
                     }, CLICK_TIMEOUT);
+                } else {
+                    // 再次点击 → 双击
+                    clearTimeout(clickTimer);
+                    clickTimer = null;
+                    onDoubleTap(video);
                 }
             }
         }
@@ -489,22 +489,18 @@
         // 手势结束收尾
         if (gestureType != "") {
             if (gestureType == "speed") {
-                onLongPressEnd(video, playerArea);
+                onLongPressEnd(video, videoArea);
             } else if (gestureType == "seek") {
-                onSeekEnd(video, playerArea);
+                onSeekEnd(video, videoArea);
             } else if (gestureType == "brightness") {
-                onBrightnessEnd();
+                onBrightnessEnd(videoArea);
             } else if (gestureType == "volume") {
-                onVolumeEnd();
+                onVolumeEnd(videoArea);
             }
-
-            gestureType = "";
-            setTimeout(() => hideToast(playerArea), 500);
         }
 
-        startX = 0;
-        startY = 0;
         isDown = false;
+        gestureType = "";
     }
 
     // #endregion
@@ -516,14 +512,12 @@
     // ============================================================
 
     function createSafeShield() {
-        playerArea = document.querySelector('.bpx-player-video-area');
-        if (!playerArea) return;
-        if (playerArea.querySelector('#gemini-mobile-shield')) return;
+        videoArea = document.querySelector(".bpx-player-video-area");
+        if (!videoArea) return;
+        if (videoArea.querySelector("#" + SHIELD_ID)) return;
 
-        console.log('双击播放暂停 / 长按倍速 / 滑动进度亮度音量 版已部署');
-
-        shield = document.createElement('div');
-        shield.id = 'gemini-mobile-shield';
+        shield = document.createElement("div");
+        shield.id = SHIELD_ID;
         shield.style.cssText = `
             position: absolute;
             z-index: 20;
@@ -538,19 +532,19 @@
             touch-action: none !important;
             user-select: none;
         `;
-        playerArea.appendChild(shield);
+        videoArea.appendChild(shield);
 
-        shield.addEventListener('pointerdown', (e) => handleDown(e, playerArea));
-        document.addEventListener('pointermove', (e) => handleMove(e, playerArea));
-        document.addEventListener('pointerup', (e) => handleUp(e, playerArea));
-        document.addEventListener('pointercancel', (e) => handleUp(e, playerArea));
-        shield.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
+        shield.addEventListener("pointerdown", (e) => handleDown(e, videoArea));
+        document.addEventListener("pointermove", (e) => handleMove(e, videoArea));
+        document.addEventListener("pointerup", (e) => handleUp(e, videoArea));
+        document.addEventListener("pointercancel", (e) => handleUp(e, videoArea));
+        shield.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); });
     }
 
 
     const observer = new MutationObserver(() => createSafeShield());
     observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener('load', createSafeShield);
+    window.addEventListener("load", createSafeShield);
 
     // #endregion
 
