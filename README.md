@@ -1,10 +1,9 @@
 # Bilibili Touch Enhancer
 
-> 为触屏设备优化的 Bilibili 网页播放器手势增强脚本  
+> 为触屏设备优化的 Bilibili 网页播放器手势增强脚本  🔗 [GitHub 仓库](https://github.com/zwb101325/bilibili-touch-enhancer)
 
 
 ## ✨ 功能特性
-
 | 手势 | 动作 | 反馈 |
 |------|------|------|
 | **单指单击** | 显示/隐藏控制栏 | — |
@@ -16,7 +15,6 @@
 
 
 ## ⚙️ 参数配置
-
 | 参数 | 默认值 | 单位 | 说明 |
 |------|--------|------|------|
 | `PRESS_DELAY` | 300 | 毫秒 | 长按触发时间 |
@@ -27,9 +25,7 @@
 
 
 ## 🚀 使用说明
-
 在 Bilibili 视频播放页面中，直接使用触屏或鼠标手势操作：
-
 - 单击：显示 / 隐藏控制栏  
 - 双击：播放 / 暂停  
 - 长按：倍速播放  
@@ -39,14 +35,12 @@
 
 
 ## 📦 安装
-
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
 2. 访问 [本脚本页面](https://greasyfork.org/zh-CN/scripts/573952)
 3. 点击「安装此脚本」
 
 
 ## 💻 兼容性
-
 - 适用于 **Bilibili 网页播放器**
 - 支持常见浏览器（Edge / Chrome 等）
 - 适用于触屏设备（Surface / Yoga / MateBook 等）
@@ -54,5 +48,4 @@
 
 
 ## ⭐ 支持项目
-
 如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
