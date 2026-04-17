@@ -1,6 +1,6 @@
 # Bilibili Touch Enhancer
 
-> 为触屏设备优化的 Bilibili 网页播放器手势增强脚本  🔗 [GitHub 仓库](https://github.com/zwb101325/bilibili-touch-enhancer)
+> 为触屏设备优化的 Bilibili 网页播放器手势增强脚本 
 
 
 ## ✨ 功能特性
@@ -48,4 +48,4 @@
 
 
 ## ⭐ 支持项目
-如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
+如果这个项目对你有帮助，欢迎到 [GitHub](https://github.com/zwb101325/bilibili-touch-enhancer) 点个 ⭐ Star 支持一下！
