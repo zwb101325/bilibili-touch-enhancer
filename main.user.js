@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.7.7
+// @version      1.7.8
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -268,7 +268,7 @@
     function formatTime(seconds) {
         const hr = Math.floor(seconds / 3600);
         const min = Math.floor((seconds % 3600) / 60);
-        const sec = Math.floor(seconds % 60);
+        const sec = Math.ceil(seconds % 60);
 
         if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
         return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
