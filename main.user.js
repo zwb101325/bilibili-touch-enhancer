@@ -531,7 +531,7 @@
             left: 0;
             
             width: 100%; 
-            height: 85%;
+            height: 100%;
 
             background: transparent;
 
