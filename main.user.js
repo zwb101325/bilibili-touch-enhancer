@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.7.5
+// @version      1.7.6
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -510,6 +510,12 @@
     // ============================================================
     // #region 初始化
     // ============================================================
+    function blockNativeEvent(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+    }
+
 
     function createSafeShield() {
         videoArea = document.querySelector(".bpx-player-video-area");
@@ -535,10 +541,14 @@
         videoArea.appendChild(shield);
 
         shield.addEventListener("pointerdown", (e) => handleDown(e, videoArea));
-        document.addEventListener("pointermove", (e) => handleMove(e, videoArea));
-        document.addEventListener("pointerup", (e) => handleUp(e, videoArea));
-        document.addEventListener("pointercancel", (e) => handleUp(e, videoArea));
+        shield.addEventListener("pointermove", (e) => handleMove(e, videoArea));
+        shield.addEventListener("pointerup", (e) => handleUp(e, videoArea));
+        shield.addEventListener("pointercancel", (e) => handleUp(e, videoArea));
         shield.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); });
+
+        shield.addEventListener("click", blockNativeEvent, true);
+        shield.addEventListener("dblclick", blockNativeEvent, true);
+        shield.addEventListener("auxclick", blockNativeEvent, true);
     }
 
 
