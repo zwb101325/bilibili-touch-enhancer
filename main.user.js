@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.7.9
+// @version      1.8.0
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -541,9 +541,9 @@
         videoArea.appendChild(shield);
 
         shield.addEventListener("pointerdown", (e) => handleDown(e, videoArea), true);
-        shield.addEventListener("pointermove", (e) => handleMove(e, videoArea), true);
-        shield.addEventListener("pointerup", (e) => handleUp(e, videoArea), true);
-        shield.addEventListener("pointercancel", (e) => handleUp(e, videoArea), true);
+        document.addEventListener("pointermove", (e) => handleMove(e, videoArea), true);
+        document.addEventListener("pointerup", (e) => handleUp(e, videoArea), true);
+        document.addEventListener("pointercancel", (e) => handleUp(e, videoArea), true);
 
         shield.addEventListener("contextmenu", blockNativeEvent, true);
         shield.addEventListener("click", blockNativeEvent, true);
