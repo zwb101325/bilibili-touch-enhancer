@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
+// @version      1.8.1
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -10,6 +10,7 @@
 // @grant        unsafeWindow
 // @license      MIT
 // ==/UserScript==
+
 
 (function() {
     "use strict";
@@ -47,7 +48,7 @@
     let absY = 0;
     let prevX = 0;
     let prevY = 0;
-    
+
     // #endregion
 
 
@@ -88,13 +89,48 @@
             <path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z" fill="currentColor" />
         </svg>`;
 
-        
+
     const volumeIcon = `
         <svg viewBox="0 0 24 24" width="24" height="24">
             <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 0 0 1.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06Z" fill="currentColor" />
             <path d="M15.9 8.2 A4.5 4.5 0 0 1 15.9 15.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             <path d="M19.1 5.7 A8.25 8.25 0 0 1 19.1 18.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </svg>`;
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 工具类函数
+    // ============================================================
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+
+    function sendMouseEvent(element, type, x = 0, y = 0) {
+        if (!element) return;
+
+        element.dispatchEvent(new unsafeWindow.MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            view: unsafeWindow
+        }));
+    }
+
+
+    function formatTime(seconds) {
+        const hr = Math.floor(seconds / 3600);
+        const min = Math.floor((seconds % 3600) / 60);
+        const sec = Math.ceil(seconds % 60);
+
+        if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+    }
 
     // #endregion
 
@@ -116,8 +152,8 @@
 
                 position: absolute;
                 z-index: 100001;
-                top: 15%; 
-                left: 50%; 
+                top: 15%;
+                left: 50%;
                 transform: translateX(-50%);
 
                 padding: 12px 24px;
@@ -129,11 +165,11 @@
                 backdrop-filter: blur(4px);
 
                 font-family: "Segoe UI", sans-serif;
-                font-size: 20px; 
+                font-size: 20px;
                 font-weight: 500;
                 text-align: center;
                 white-space: nowrap;
-                
+
                 pointer-events: none;
             `;
             videoArea.appendChild(toastContainer);
@@ -171,7 +207,6 @@
 
     function hideToast(videoArea) {
         clearTimeout(toastTimer);
-        toastTimer = null;
         const toastContainer = videoArea.querySelector("#" + TOAST_ID);
         if (toastContainer) toastContainer.style.display = "none";
     }
@@ -183,19 +218,6 @@
     // ============================================================
     // #region 单指单击：显示/隐藏控制栏
     // ============================================================
-
-    function sendMouseEvent(element, type, x = 0, y = 0) {
-        if (!element) return;
-
-        element.dispatchEvent(new unsafeWindow.MouseEvent(type, {
-            bubbles: true,
-            cancelable: true,
-            clientX: x,
-            clientY: y,
-            view: unsafeWindow
-        }));
-    }
-
 
     function showCtrl(videoArea) {
         const videoRect = videoArea.getBoundingClientRect();
@@ -213,14 +235,7 @@
         const playerContainer = videoArea.closest(".bpx-player-container");
         if (!playerContainer) return;
         const isHidden = playerContainer.getAttribute("data-ctrl-hidden") === "true";
-
-        if (isHidden) {
-            showCtrl(videoArea);
-            playerContainer.setAttribute("data-ctrl-hidden", "false");
-        } else {
-            hideCtrl(videoArea);
-            playerContainer.setAttribute("data-ctrl-hidden", "true");
-        }
+        isHidden ? showCtrl(videoArea) : hideCtrl(videoArea);
     }
 
     // #endregion
@@ -260,42 +275,53 @@
 
 
     // ============================================================
-    // #region 横向滑动：调节进度
+    // #region 横向滑动：调节进度（预览图 + 预览时间同步）
     // ============================================================
 
-    function formatTime(seconds) {
-        const hr = Math.floor(seconds / 3600);
-        const min = Math.floor((seconds % 3600) / 60);
-        const sec = Math.ceil(seconds % 60);
+    function getProgressPoint(videoArea, ratio) {
+        const progressBar = videoArea.querySelector(".bpx-player-progress");
+        if (!progressBar) return;
 
-        if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+        const barRect = progressBar.getBoundingClientRect();
+        const x = barRect.left + barRect.width * ratio;
+        const y = barRect.top + barRect.height / 2;
+
+        return { progressBar, x, y };
     }
 
 
-    function onSeekStart(video, clientX) {
-        startVal = video.currentTime;
+    function onSeekStart(video, videoArea, clientX) {
         prevX = clientX;
+        startVal = video.currentTime;
         wasPlaying = !video.paused;
         video.pause();
+
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mouseenter", point.x, point.y);
     }
 
 
     function onSeek(video, videoArea, clientX) {
         startVal = startVal + (clientX - prevX) / (videoArea.clientWidth * HORIZONTAL_SENS) * video.duration;
-        if (startVal < 0) startVal = 0;
-        if (startVal > video.duration) startVal = video.duration;
-        
+        startVal = clamp(startVal, 0, video.duration);
         prevX = clientX;
         video.currentTime = startVal;
-        showCtrl(videoArea);
+
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mousemove", point.x, point.y);
+        const previewTime = videoArea.querySelector(".bpx-player-progress-preview-time");
+        if (previewTime) previewTime.textContent = formatTime(startVal);
+
         showToast(videoArea, `${formatTime(startVal)} / ${formatTime(video.duration)}`);
     }
 
 
     function onSeekEnd(video, videoArea) {
         if (wasPlaying) video.play();
-        hideCtrl(videoArea);
+        
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mouseleave", point.x, point.y);
+
         hideToast(videoArea);
     }
 
@@ -316,16 +342,14 @@
 
 
     function onBrightnessStart(video, clientY) {
-        startVal = getCurrentBrightness(video);
         prevY = clientY;
+        startVal = getCurrentBrightness(video);
     }
 
 
     function onBrightness(video, videoArea, clientY) {
         startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        if (startVal > 1) startVal = 1;
-        if (startVal < 0) startVal = 0;
-
+        startVal = clamp(startVal, 0, 1);
         prevY = clientY;
         video.style.filter = `brightness(${startVal})`;
         showIconToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
@@ -346,16 +370,14 @@
     // ============================================================
 
     function onVolumeStart(video, clientY) {
-        startVal = video.volume;
         prevY = clientY;
+        startVal = video.volume;
     }
 
 
     function onVolume(video, videoArea, clientY) {
         startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        if (startVal > 1) startVal = 1;
-        if (startVal < 0) startVal = 0;
-
+        startVal = clamp(startVal, 0, 1);
         prevY = clientY;
         video.volume = startVal;
         showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
@@ -377,8 +399,7 @@
 
     // 手指按下时 → 长按
     function handleDown(e, videoArea) {
-        if (!e.isPrimary) return;
-        if (e.button == 2) return;
+        if (!e.isPrimary || e.button == 2) return;
         const video = videoArea.querySelector("video");
         if (!video) return;
 
@@ -413,24 +434,17 @@
 
         // 手势未确定，判断滑动方向
         if (gestureType == "" && (absX > 15 || absY > 15)) {
-            if (pressTimer) {
-                clearTimeout(pressTimer);
-                pressTimer = null;
-            }
+            clearTimeout(pressTimer)
 
             if (absX > absY) {
-                // 横向滑动 → 调节进度
                 gestureType = "seek";
-                onSeekStart(video, e.clientX);
+                onSeekStart(video, videoArea, e.clientX);
+            } else if (startX < videoArea.clientWidth / 2) {
+                gestureType = "brightness";
+                onBrightnessStart(video, e.clientY);
             } else {
-                // 纵向滑动 → 调节亮度/音量
-                if (startX < videoArea.clientWidth / 2) {
-                    gestureType = "brightness";
-                    onBrightnessStart(video, e.clientY);
-                } else {
-                    gestureType = "volume";
-                    onVolumeStart(video, e.clientY);
-                }
+                gestureType = "volume";
+                onVolumeStart(video, e.clientY);
             }
         }
 
@@ -438,21 +452,18 @@
         if (gestureType != "") {
             if (gestureType == "seek") {
                 onSeek(video, videoArea, e.clientX);
-            } else if (gestureType == "volume") {
-                onVolume(video, videoArea, e.clientY);
             } else if (gestureType == "brightness") {
                 onBrightness(video, videoArea, e.clientY);
+            } else if (gestureType == "volume") {
+                onVolume(video, videoArea, e.clientY);
             }
         }
     }
 
-    
-    // 手指抬起时 → 单击/双击/长按结束/横向滑动结束
+
+    // 手指抬起时 → 单击/双击/长按结束/滑动结束
     function handleUp(e, videoArea) {
-        if (pressTimer) {
-            clearTimeout(pressTimer);
-            pressTimer = null;
-        }
+        clearTimeout(pressTimer);
 
         const video = videoArea.querySelector("video");
         if (!video) {
@@ -467,20 +478,16 @@
         absY = Math.abs(deltaY);
 
         // 无滑动、无长按 → 单击或双击
-        if (gestureType == "") {
-            if (absX < 10 && absY < 10) {
-                if (!clickTimer) {
-                    // 首次点击 → 等待是否有第二次
-                    clickTimer = setTimeout(() => {
-                        clickTimer = null;
-                        handleCtrl(videoArea);
-                    }, CLICK_TIMEOUT);
-                } else {
-                    // 再次点击 → 双击
-                    clearTimeout(clickTimer);
+        if (gestureType == "" && (absX < 10 && absY < 10)) {
+            if (!clickTimer) {
+                clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    onDoubleTap(video);
-                }
+                    handleCtrl(videoArea);
+                }, CLICK_TIMEOUT);
+            } else {
+                clearTimeout(clickTimer);
+                clickTimer = null;
+                onDoubleTap(video);
             }
         }
 
@@ -525,10 +532,10 @@
         shield.style.cssText = `
             position: absolute;
             z-index: 20;
-            top: 0; 
+            top: 0;
             left: 0;
-            
-            width: 100%; 
+
+            width: 100%;
             height: 85%;
 
             background: transparent;
