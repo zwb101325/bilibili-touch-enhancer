@@ -298,6 +298,8 @@
 
         const point = getProgressPoint(videoArea, startVal / video.duration);
         if (point) sendMouseEvent(point.progressBar, "mouseenter", point.x, point.y);
+
+        showCtrl(videoArea);
     }
 
 
@@ -322,6 +324,7 @@
         const point = getProgressPoint(videoArea, startVal / video.duration);
         if (point) sendMouseEvent(point.progressBar, "mouseleave", point.x, point.y);
 
+        hideCtrl(videoArea);
         hideToast(videoArea);
     }
 
