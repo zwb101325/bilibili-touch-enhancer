@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.8.8
+// @version      1.8.9
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -286,7 +286,7 @@
         if (!progressBar) return;
 
         const barRect = progressBar.getBoundingClientRect();
-        const x = barRect.left + barRect.width * ratio;
+        const x = barRect.left + barRect.width * (ratio + 0.005);
         const y = barRect.top + barRect.height / 2;
 
         return { progressBar, x, y };
