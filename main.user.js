@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.8.7
+// @version      1.8.8
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -26,7 +26,7 @@
     const HORIZONTAL_SENS = 0.8;
     const VERTICAL_SENS = 0.5;
     const MAX_BRIGHTNESS = 1.0;
-    const MAX_VOLUMN = 1.0;
+    const MAX_VOLUME = 1.0;
     const TOAST_ID = "gesture-toast";
     const SHIELD_ID = "gesture-shield";
 
@@ -383,7 +383,7 @@
 
     function onVolume(video, videoArea, clientY) {
         startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        startVal = clamp(startVal, 0, MAX_VOLUMN);
+        startVal = clamp(startVal, 0, MAX_VOLUME);
         prevY = clientY;
         video.volume = startVal;
         showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
