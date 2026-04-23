@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.8.6
+// @version      1.8.7
 // @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
 // @author       You
 // @match        *://*.bilibili.com/*
@@ -23,8 +23,10 @@
     const TARGET_SPEED = 3.0;
     const CLICK_TIMEOUT = 200;
     const TOAST_DELAY = 500;
-    const HORIZONTAL_SENS = 0.7;
+    const HORIZONTAL_SENS = 0.8;
     const VERTICAL_SENS = 0.5;
+    const MAX_BRIGHTNESS = 1.0;
+    const MAX_VOLUMN = 1.0;
     const TOAST_ID = "gesture-toast";
     const SHIELD_ID = "gesture-shield";
 
@@ -279,11 +281,28 @@
     // #region 横向滑动：调节进度
     // ============================================================
 
+    function getProgressPoint(videoArea, ratio) {
+        const progressBar = videoArea.querySelector(".bpx-player-progress");
+        if (!progressBar) return;
+
+        const barRect = progressBar.getBoundingClientRect();
+        const x = barRect.left + barRect.width * ratio;
+        const y = barRect.top + barRect.height / 2;
+
+        return { progressBar, x, y };
+    }
+
+
     function onSeekStart(video, videoArea, clientX) {
         prevX = clientX;
         startVal = video.currentTime;
         wasPlaying = !video.paused;
         video.pause();
+
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mouseenter", point.x, point.y);
+
+        showCtrl(videoArea);
     }
 
 
@@ -293,13 +312,20 @@
         prevX = clientX;
         video.currentTime = startVal;
 
-        showCtrl(videoArea);
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mousemove", point.x, point.y);
+        const previewTime = videoArea.querySelector(".bpx-player-progress-preview-time");
+        if (previewTime) previewTime.textContent = formatTime(startVal);
+
         showToast(videoArea, `${formatTime(startVal)} / ${formatTime(video.duration)}`);
     }
 
 
     function onSeekEnd(video, videoArea) {
         if (wasPlaying) video.play();
+
+        const point = getProgressPoint(videoArea, startVal / video.duration);
+        if (point) sendMouseEvent(point.progressBar, "mouseleave", point.x, point.y);
 
         hideCtrl(videoArea);
         hideToast(videoArea);
@@ -329,7 +355,7 @@
 
     function onBrightness(video, videoArea, clientY) {
         startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        startVal = clamp(startVal, 0, 1);
+        startVal = clamp(startVal, 0, MAX_BRIGHTNESS);
         prevY = clientY;
         video.style.filter = `brightness(${startVal})`;
         showIconToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
@@ -357,7 +383,7 @@
 
     function onVolume(video, videoArea, clientY) {
         startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        startVal = clamp(startVal, 0, 1);
+        startVal = clamp(startVal, 0, MAX_VOLUMN);
         prevY = clientY;
         video.volume = startVal;
         showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
