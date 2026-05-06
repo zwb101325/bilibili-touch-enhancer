@@ -1,17 +1,19 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
-// @description  单击显示/隐藏控制栏，双击播放/暂停，长按倍速播放，左右滑动调节播放进度，上下滑动调节亮度/音量
+// @version      1.9.1
+// @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
-// @match        *://*.bilibili.com/*
+// @match        *://*.bilibili.com/video/*
 // @icon         https://www.bilibili.com/favicon.ico
 // @run-at       document-end
 // @noframes
 // @grant        unsafeWindow
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @license      MIT
 // ==/UserScript==
-
 
 (function() {
     "use strict";
@@ -19,29 +21,93 @@
     // ============================================================
     // #region 参数配置
     // ============================================================
-    const PRESS_DELAY = 300;
-    const TARGET_SPEED = 3.0;
-    const CLICK_TIMEOUT = 200;
-    const TOAST_DELAY = 500;
-    const HORIZONTAL_SENS = 0.8;
-    const VERTICAL_SENS = 0.5;
-    const MAX_BRIGHTNESS = 1.0;
-    const MAX_VOLUME = 1.0;
-    const TOAST_ID = "gesture-toast";
-    const SHIELD_ID = "gesture-shield";
+
+    const SETTINGS_KEY = "bte-settings-v1";
+    const TOAST_ID = "bte-toast";
+    const SHIELD_ID = "bte-shield";
+    const SETTINGS_PANEL_ID = "bte-settings-panel";
+
+    const BUTTON_CLASS = "bte-side-button";
+    const LEFT_BUTTON_ID = "bte-left-button";
+    const LEFT_BACKWARD_BUTTON_ID = "bte-left-backward-button";
+    const LEFT_FORWARD_BUTTON_ID = "bte-left-forward-button";
+    const RIGHT_BUTTON_ID = "bte-right-button";
+    const RIGHT_BACKWARD_BUTTON_ID = "bte-right-backward-button";
+    const RIGHT_FORWARD_BUTTON_ID = "bte-right-forward-button";
+    const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
+    const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
+
+    const ZONE_LABELS = {
+        left: "左侧",
+        right: "右侧"
+    };
+
+    const VERTICAL_ACTIONS = {
+        none: "无操作",
+        brightness: "调节亮度",
+        volume: "调节音量"
+    };
+
+    const BUTTON_ACTIONS = {
+        none: "无操作",
+        lock: "锁定按钮",
+        menu: "菜单按钮"
+    };
+
+    const DEFAULT_SETTINGS = {
+        general: {
+            doubleTapPause: true,
+            longPressSpeed: true,
+            horizontalSwipeSeek: true
+        },
+        verticalSwipe: {
+            left: "brightness",
+            right: "volume"
+        },
+        buttons: {
+            left: "lock",
+            right: "menu"
+        },
+        quickSeekStep: 10,
+        clickTimeout: 200,
+        targetSpeed: 3.0,
+        pressDelay: 300,
+        toastDelay: 500,
+        horizontalSens: 100,
+        verticalSens: 50,
+        maxBrightness: 100,
+        maxVolume: 100,
+        btnSizeRatio: 0.04,
+        btnSideRatio: 0.03,
+        btnExpandOffsetRatio: 0.05,
+        btnExpandDuration: 180,
+    };
+
+    let userSettings = loadSettings();
 
     let videoArea = null;
     let shield = null;
+    let ctrlObserver = null;
+    let currentPlayerContainer = null;
 
+    let isLocked = false;
+    const expandedButtonIds = new Set();
+    
     let isDown = false;
     let gestureType = "";
     let pressTimer = null;
     let clickTimer = null;
     let toastTimer = null;
-
+    let ctrlTimer = null;
+    let shieldTimer = null;
+    
     let startVal = 0;
     let originalSpeed = 1.0;
     let wasPlaying = false;
+
+    let ctx;
+    let sourceNode;
+    let gainNode;
 
     let startX = 0;
     let startY = 0;
@@ -56,10 +122,6 @@
 
 
 
-    // ============================================================
-    // #region 图标
-    // ============================================================
-
     const style = document.createElement("style");
     style.textContent = `
         @keyframes gestureSpeedPulse {
@@ -69,12 +131,330 @@
             75%  { opacity: 0.6; filter: brightness(0.6); }
             100% { opacity: 0.3; filter: brightness(0.3); }
         }
+
+
+        /* 设置面板容器 */
+        .bte-card-wrap {
+            width: min(540px, calc(100vw - 28px));
+            max-height: min(720px, calc(100vh - 28px));
+            overflow: hidden;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            color: #111827;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+        }
+
+        .bte-card {
+            max-height: min(720px, calc(100vh - 28px));
+            box-sizing: border-box;
+            overflow: auto;
+            padding: 14px 12px 14px 12px;
+            margin-right: 6px;
+        }
+
+
+        /* 设置面板头部 */
+        .bte-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 2px 4px 10px;
+        }
+
+        .bte-title {
+            font-size: 17px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        /* 设置面板按钮 */
+        .bte-close-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border: 0;
+            border-radius: 999px;
+            color: #4b5563;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .bte-close-button svg {
+            width: 20px;
+            height: 20px;
+            display: block;
+            fill: currentColor;
+            pointer-events: none;
+        }
+
+        .bte-button {
+            border: 0;
+            border-radius: 999px;
+            padding: 8px 14px;
+            color: #374151;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+        }
+
+        .bte-close-button:hover,
+        .bte-button:hover {
+            background: #e5e7eb;
+        }
+
+        /* 设置分组 */
+        .bte-section {
+            padding: 0 0 8px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .bte-section:first-of-type {
+            border-top: 0;
+        }
+
+        .bte-section > summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0 8px;
+            color: #374151;
+            cursor: pointer;
+            list-style: none;
+            font-size: 15px;
+            font-weight: 650;
+        }
+
+        .bte-section > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .bte-section > summary::after {
+            content: "›";
+            font-size: 22px;
+            line-height: 1;
+            color: #6b7280;
+            transform: rotate(0deg);
+            transition: transform 0.16s ease;
+        }
+
+        .bte-section[open] > summary::after {
+            transform: rotate(90deg);
+        }
+
+
+        /* 设置行和标签 */
+        .bte-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 12px;
+            min-height: 46px;
+        }
+
+        .bte-number-setting-row {
+            grid-template-columns: minmax(130px, 1fr) minmax(300px, 360px);
+        }
+
+        .bte-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #111827;
+            font-size: 15px;
+            font-weight: 400;
+            font-family: inherit;
+        }
+
+        .bte-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex: 0 0 auto;
+            background: #111827;
+        }
+
+        .bte-dot-left { background: #3b82f6; }
+        .bte-dot-center { background: #8b5cf6; }
+        .bte-dot-right { background: #f59e0b; }
+
+
+        /* 开关控件 */
+        .bte-switch-row {
+            position: relative;
+            width: 38px;
+            height: 22px;
+            flex: 0 0 auto;
+        }
+
+        .bte-switch-row input {
+            display: none;
+        }
+
+        .bte-slider {
+            position: absolute;
+            inset: 0;
+            cursor: pointer;
+            border-radius: 999px;
+            background: #d1d5db;
+            transition: background 0.18s ease;
+        }
+
+        .bte-slider::before {
+            content: "";
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            left: 2px;
+            top: 2px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+            transition: transform 0.18s ease;
+        }
+
+        .bte-switch-row input:checked + .bte-slider {
+            background: #6366f1;
+        }
+
+        .bte-switch-row input:checked + .bte-slider::before {
+            transform: translateX(16px);
+        }
+
+
+        /* 下拉框控件 */
+        .bte-select-control {
+            width: 150px;
+            height: 36px;
+            box-sizing: border-box;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            outline: none;
+            color: #111827;
+            background: #fff;
+            font-family: inherit;
+            font-size: 14px;
+            padding: 0 34px 0 14px;
+            appearance: none;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #6b7280 50%),
+                linear-gradient(135deg, #6b7280 50%, transparent 50%);
+            background-position:
+                calc(100% - 18px) 15px,
+                calc(100% - 12px) 15px;
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+        }
+
+        .bte-select-control:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+        }
+
+
+        /* 数字步进控件 */
+        .bte-number-row {
+            width: 100%;
+            min-width: 0;
+            height: 44px;
+            box-sizing: border-box;
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) 64px;
+            align-items: center;
+            column-gap: 12px;
+            background: transparent;
+        }
+
+        .bte-number-control {
+            width: 100%;
+            height: 32px;
+            margin: 0;
+            accent-color: #6366f1;
+            cursor: pointer;
+        }
+
+        .bte-number-control:focus {
+            outline: none;
+        }
+
+        .bte-number-control:focus-visible {
+            outline: 3px solid rgba(99, 102, 241, 0.18);
+            outline-offset: 3px;
+            border-radius: 999px;
+        }
+
+        .bte-number-txt {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            width: 64px;
+            height: 32px;
+            box-sizing: border-box;
+            border-radius: 999px;
+            color: #111827;
+            background: #f3f4f6;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 400;
+            font-variant-numeric: tabular-nums;
+            user-select: none;
+            letter-spacing: 0;
+        }
+
+        @media (max-width: 520px) {
+            .bte-number-setting-row {
+                grid-template-columns: 1fr;
+                align-items: start;
+                gap: 4px;
+                padding: 4px 0 8px;
+            }
+
+            .bte-number-row {
+                grid-template-columns: minmax(0, 1fr) 64px;
+            }
+        }
+        
+
+        /* 底部按钮 */
+        .bte-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        
+        /* 播放器侧边按钮样式 */
+        .${BUTTON_CLASS}:hover {
+            background: rgba(0, 0, 0, 0.62);
+        }
+
+        .${BUTTON_CLASS} svg {
+            width: 55%;
+            height: 55%;
+            display: block;
+            fill: currentColor;
+            pointer-events: none;
+        }
     `;
     document.head.appendChild(style);
 
 
+
+    // ============================================================
+    // #region 图标
+    // ============================================================
+
     const speedIcon = `
-        <svg viewBox="0 0 111 66" width="34" height="20" style="overflow:visible">
+        <svg xmlns="http://www.w3.org/2000/svg" width="34" height="20" viewBox="0 0 111 66" style="overflow:visible">
             <g transform="matrix(0,3,-3,0,94.5,32.5)">
                 <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0.36s"/>
             </g>
@@ -86,18 +466,46 @@
             </g>
         </svg>`;
 
-
     const brightnessIcon = `
-        <svg viewBox="0 0 24 24" width="24" height="24">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
             <path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z" fill="currentColor" />
         </svg>`;
 
-
     const volumeIcon = `
-        <svg viewBox="0 0 24 24" width="24" height="24">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
             <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 0 0 1.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06Z" fill="currentColor" />
             <path d="M15.9 8.2 A4.5 4.5 0 0 1 15.9 15.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             <path d="M19.1 5.7 A8.25 8.25 0 0 1 19.1 18.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>`;
+
+    const lockIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" fill="currentColor" />
+        </svg>`;
+
+    const unlockIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" fill="currentColor" />
+        </svg>`;
+
+    const menuIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor" />
+        </svg>`;
+
+    const closeIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor" />
+        </svg>`;
+
+    const forwardIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z" fill="currentColor" />
+        </svg>`;
+
+    const backwardIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" fill="currentColor" />
         </svg>`;
 
     // #endregion
@@ -109,10 +517,42 @@
     // ============================================================
 
     function clamp(value, min, max) {
+        value = Number(value);
+        min = Number(min);
+        max = Number(max);
         return Math.min(max, Math.max(min, value));
     }
 
 
+    function formatNumberText(value, step, unit = "") {
+        const number = Number(value);
+        const decimals = String(step).match(/\.(\d+)/)?.[1].length ?? 0;
+
+        let text;
+
+        if (!Number.isFinite(number)) {
+            text = "0";
+        } else if (decimals <= 0) {
+            text = String(Math.round(number));
+        } else {
+            text = number.toFixed(decimals).replace(/\.?0+$/, "");
+        }
+
+        return `${text}${unit}`;
+    }
+
+
+    function formatTime(seconds) {
+        const safeSeconds = Number.isFinite(seconds) ? seconds : 0;
+        const hr = Math.floor(safeSeconds / 3600);
+        const min = Math.floor((safeSeconds % 3600) / 60);
+        const sec = Math.ceil(safeSeconds % 60);
+
+        if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+    }
+
+    
     function sendMouseEvent(element, type, x = 0, y = 0) {
         if (!element) return;
 
@@ -126,14 +566,278 @@
     }
 
 
-    function formatTime(seconds) {
-        const hr = Math.floor(seconds / 3600);
-        const min = Math.floor((seconds % 3600) / 60);
-        const sec = Math.ceil(seconds % 60);
-
-        if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-        return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+    function getGestureZone(videoArea, clientX) {
+        const rect = videoArea.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        return localX < rect.width / 2 ? "left" : "right";
     }
+
+
+    function blockNativeEvent(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+    }
+
+    
+    function resetTimeout(timer, callback, delay) {
+        clearTimeout(timer);
+        return setTimeout(callback, delay);
+    }
+
+
+    function resetInterval(timer, callback, delay) {
+        clearInterval(timer);
+        return setInterval(callback, delay);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 设置数据
+    // ============================================================
+
+    function deepMerge(defaultValue, userValue) {
+        if (!userValue || typeof userValue !== "object") return JSON.parse(JSON.stringify(defaultValue));
+
+        const result = {};
+        for (const key of Object.keys(defaultValue)) {
+            if (defaultValue[key] && typeof defaultValue[key] === "object" && !Array.isArray(defaultValue[key])) {
+                result[key] = deepMerge(defaultValue[key], userValue[key]);
+            } else {
+                result[key] = userValue[key] ?? defaultValue[key];
+            }
+        }
+        return result;
+    }
+
+
+    function loadSettings() {
+        return deepMerge(DEFAULT_SETTINGS, GM_getValue(SETTINGS_KEY, DEFAULT_SETTINGS));
+    }
+
+
+    function saveSettings() {
+        GM_setValue(SETTINGS_KEY, userSettings);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 设置面板
+    // ============================================================
+
+    function buildSwitchRow(label, group, key) {
+        const checked = userSettings[group][key] ? "checked" : "";
+
+        return `
+            <div class="bte-row">
+                <div class="bte-label">
+                    <span class="bte-dot"></span>
+                    <span>${label}</span>
+                </div>
+                <label class="bte-switch-row" data-setting-group="${group}" data-setting-key="${key}">
+                    <input class="bte-switch-control" type="checkbox" ${checked} >
+                    <span class="bte-slider"></span>
+                </label>
+            </div>
+        `;
+    }
+
+
+    function buildSelectRow(group, zone, options) {
+        const value = userSettings[group][zone];
+        const optionHtml = Object.entries(options).map(([optionValue, label]) => {
+            const selected = optionValue === value ? "selected" : "";
+            return `<option value="${optionValue}" ${selected}>${label}</option>`;
+        }).join("");
+
+        return `
+            <div class="bte-row">
+                <div class="bte-label">
+                    <span class="bte-dot bte-dot-${zone}"></span>
+                    <span>${ZONE_LABELS[zone]}</span>
+                </div>
+                <div class="bte-select-row" data-setting-group="${group}" data-setting-key="${zone}">
+                    <select class="bte-select-control">${optionHtml}</select>
+                </div>
+            </div>
+        `;
+    }
+
+
+    function buildNumberRow(label, key, min, max, step, unit = "") {
+        const value = userSettings[key] ?? DEFAULT_SETTINGS[key];
+        
+        return `
+            <div class="bte-row bte-number-setting-row">
+                <div class="bte-label">
+                    <span>${label}</span>
+                </div>
+                <div class="bte-number-row" data-setting-key="${key}" data-unit="${unit}">
+                    <input class="bte-number-control" type="range" min="${min}" max="${max}" step="${step}" value="${value}">
+                    <span class="bte-number-txt">${formatNumberText(value, step, unit)}</span>
+                </div>
+            </div>
+        `;
+    }
+
+
+    function updateSettingsPanel(panel) {
+        panel.querySelectorAll(".bte-switch-row").forEach((switchRow) => {
+            const group = switchRow.dataset.settingGroup;
+            const key = switchRow.dataset.settingKey;
+            switchRow.querySelector(".bte-switch-control").checked = userSettings[group][key];
+        });
+
+        panel.querySelectorAll(".bte-select-row").forEach((selectRow) => {
+            const group = selectRow.dataset.settingGroup;
+            const key = selectRow.dataset.settingKey;
+            selectRow.querySelector(".bte-select-control").value = userSettings[group][key];
+        });
+
+        panel.querySelectorAll(".bte-number-row").forEach((numberRow) => {
+            const key = numberRow.dataset.settingKey;
+            const step = numberRow.querySelector(".bte-number-control").step;
+            const unit = numberRow.dataset.unit;
+            numberRow.querySelector(".bte-number-control").value = userSettings[key];
+            numberRow.querySelector(".bte-number-txt").textContent = formatNumberText(userSettings[key], step, unit);
+        });
+    }
+
+    
+    function createSettingsPanel() {
+        let panel = document.querySelector("#" + SETTINGS_PANEL_ID);
+        if (!panel) {
+            panel = document.createElement("div");
+            panel.id = SETTINGS_PANEL_ID;
+            panel.innerHTML = `
+                <div class="bte-card-wrap">
+                    <div class="bte-card">
+                        <div class="bte-header">
+                            <div class="bte-title">Bilibili Touch Enhancer 设置</div>
+                            <button class="bte-close-button" type="button" data-action="close">${closeIcon}</button>
+                        </div>
+
+                        <details class="bte-section">
+                            <summary>双击</summary>
+                            ${buildSwitchRow("双击暂停", "general", "doubleTapPause")}
+                            ${buildNumberRow("双击判定间隔", "clickTimeout", 100, 1000, 100, "ms")}
+                        </details>
+
+                        <details class="bte-section">
+                            <summary>长按</summary>
+                            ${buildSwitchRow("长按倍速", "general", "longPressSpeed")}
+                            ${buildNumberRow("长按播放速度", "targetSpeed", 0.25, 10, 0.25, "x")}
+                            ${buildNumberRow("长按触发延迟", "pressDelay", 100, 1000, 100, "ms")}
+                        </details>
+
+                        <details class="bte-section">
+                            <summary>横向滑动</summary>
+                            ${buildSwitchRow("滑动快进", "general", "horizontalSwipeSeek")}
+                            ${buildNumberRow("横向滑动灵敏度", "horizontalSens", 10, 300, 10, "%")}
+                        </details>
+
+                        <details class="bte-section">
+                            <summary>纵向滑动</summary>
+                            ${buildSelectRow("verticalSwipe", "left", VERTICAL_ACTIONS)}
+                            ${buildSelectRow("verticalSwipe", "right", VERTICAL_ACTIONS)}
+                            ${buildNumberRow("纵向滑动灵敏度", "verticalSens", 10, 300, 10, "%")}
+                            ${buildNumberRow("最大亮度", "maxBrightness", 10, 300, 10, "%")}
+                            ${buildNumberRow("最大音量", "maxVolume", 10, 300, 10, "%")}
+                        </details>
+
+                        <details class="bte-section">
+                            <summary>按钮区域</summary>
+                            ${buildSelectRow("buttons", "left", BUTTON_ACTIONS)}
+                            ${buildSelectRow("buttons", "right", BUTTON_ACTIONS)}
+                            ${buildNumberRow("按钮跳转时长", "quickSeekStep", 1, 120, 5, "s")}
+                        </details>
+
+                        <div class="bte-footer">
+                            <button class="bte-button" type="button" data-action="reset">恢复默认</button>
+                            <button class="bte-button" type="button" data-action="close">完成</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            panel.style.cssText = `
+                position: fixed;
+                z-index: 2147483647;
+                inset: 0;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                background: rgba(15, 23, 42, 0.28);
+                backdrop-filter: blur(6px);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            `;
+
+            // 关闭面板，重置面板
+            panel.addEventListener("click", (e) => {
+                if (e.target.dataset.action === "close" || e.target === panel) {
+                    panel.style.display = "none";
+                    return;
+                }
+
+                if (e.target.dataset.action === "reset") {
+                    userSettings = deepMerge(DEFAULT_SETTINGS, {});
+                    saveSettings();
+                    updateSettingsPanel(panel);
+                    setupButtons(videoArea);
+                    return;
+                }
+
+            });
+
+            // 开关行，选择行
+            panel.addEventListener("change", (e) => {
+                const switchRow = e.target.closest(".bte-switch-row");
+                if (switchRow) {
+                    const group = switchRow.dataset.settingGroup;
+                    const key = switchRow.dataset.settingKey;
+                    userSettings[group][key] = e.target.checked;
+                    saveSettings();
+                    return;
+                }
+
+                const selectRow = e.target.closest(".bte-select-row");
+                if (selectRow) {
+                    const group = selectRow.dataset.settingGroup;
+                    const key = selectRow.dataset.settingKey;
+                    userSettings[group][key] = e.target.value;
+                    saveSettings();
+                    if (group === "buttons") setupButtons(videoArea);
+                    return;
+                }
+            });
+
+            // 数值行
+            panel.addEventListener("input", (e) => {
+                const numberRow = e.target.closest(".bte-number-row");
+                if (numberRow) {
+                    const key = numberRow.dataset.settingKey;
+                    const value = clamp(e.target.value, e.target.min, e.target.max);
+                    userSettings[key] = value;
+                    numberRow.querySelector(".bte-number-txt").textContent = formatNumberText(value, e.target.step, numberRow.dataset.unit);
+                    saveSettings();
+                    return;
+                }
+            });
+
+            document.body.appendChild(panel);
+        }
+        panel.style.display = "flex";
+        return panel;
+    }
+
+    GM_registerMenuCommand("设置", createSettingsPanel);
 
     // #endregion
 
@@ -144,21 +848,21 @@
     // ============================================================
 
     function createToast(videoArea) {
-        let toastContainer = videoArea.querySelector("#" + TOAST_ID);
-        if (!toastContainer) {
-            toastContainer = document.createElement("div");
-            toastContainer.id = TOAST_ID;
-            toastContainer.style.cssText = `
-                display: none;
-                align-items: center;
-                gap: 8px;
-
+        let toast = videoArea.querySelector("#" + TOAST_ID);
+        if (!toast) {
+            toast = document.createElement("div");
+            toast.id = TOAST_ID;
+            toast.style.cssText = `
                 position: absolute;
                 z-index: 100001;
                 top: 15%;
                 left: 50%;
                 transform: translateX(-50%);
 
+                display: none;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
                 padding: 12px 24px;
                 border-radius: 8px;
 
@@ -175,24 +879,24 @@
 
                 pointer-events: none;
             `;
-            videoArea.appendChild(toastContainer);
+            videoArea.appendChild(toast);
         }
-        return toastContainer;
+        return toast;
     }
 
 
     function showToast(videoArea, text) {
-        const toastContainer = createToast(videoArea);
-        toastContainer.innerHTML = "";
-        toastContainer.style.display = "flex";
-        toastContainer.appendChild(document.createTextNode(text));
+        const toast = createToast(videoArea);
+        toast.innerHTML = "";
+        toast.style.display = "flex";
+        toast.appendChild(document.createTextNode(text));
     }
 
 
     function showIconToast(videoArea, svg, text) {
-        const toastContainer = createToast(videoArea);
-        toastContainer.innerHTML = "";
-        toastContainer.style.display = "flex";
+        const toast = createToast(videoArea);
+        toast.innerHTML = "";
+        toast.style.display = "flex";
 
         const iconContainer = document.createElement("span");
         iconContainer.innerHTML = svg;
@@ -203,15 +907,15 @@
             flex-shrink: 0;
         `;
 
-        toastContainer.appendChild(iconContainer);
-        toastContainer.appendChild(document.createTextNode(text));
+        toast.appendChild(iconContainer);
+        toast.appendChild(document.createTextNode(text));
     }
 
 
     function hideToast(videoArea) {
         clearTimeout(toastTimer);
-        const toastContainer = videoArea.querySelector("#" + TOAST_ID);
-        if (toastContainer) toastContainer.style.display = "none";
+        const toast = videoArea.querySelector("#" + TOAST_ID);
+        if (toast) toast.style.display = "none";
     }
 
     // #endregion
@@ -219,7 +923,239 @@
 
 
     // ============================================================
-    // #region 单指单击：显示/隐藏控制栏
+    // #region 按钮
+    // ============================================================
+
+    function createButton(videoArea, id, action) {
+        let button = videoArea.querySelector("#" + id);
+        if (!button) {
+            button = document.createElement("button");
+            button.id = id;
+            button.className = BUTTON_CLASS;
+            button.type = "button";
+            button.style.cssText = `
+                position: absolute;
+                z-index: 100002;
+                top: 50%;
+                transform: translateY(-50%);
+                
+                display: none;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(255, 255, 255, 0.36);
+                border-radius: 999px;
+
+                color: #fff;
+                background: rgba(0, 0, 0, 0.46);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+                backdrop-filter: blur(6px);
+                opacity: 0;
+                
+                line-height: 1;
+                
+                cursor: pointer;
+                pointer-events: none;
+                user-select: none;
+                touch-action: manipulation;
+                transition: opacity ${Number(userSettings.btnExpandDuration)/1000}s ease, 
+                            transform ${Number(userSettings.btnExpandDuration)/1000}s ease, 
+                            background 0.16s ease;
+            `;
+            
+            button.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") keepCtrlVisible(videoArea); }, true);
+            button.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") stopCtrlVisible(); }, true);
+            button.addEventListener("pointerdown", blockNativeEvent, true);
+            button.addEventListener("pointerup", blockNativeEvent, true);
+            button.addEventListener("click", (e) => {
+                blockNativeEvent(e);
+                if (button.dataset.action == "lock") {
+                    onLockButtonClick(videoArea);
+                } else if (button.dataset.action == "menu") {
+                    onMenuButtonClick(videoArea, button);
+                } else if (button.dataset.action == "backward") {
+                    onQuickSeek(videoArea, -userSettings.quickSeekStep);
+                } else if (button.dataset.action == "forward") {
+                    onQuickSeek(videoArea, userSettings.quickSeekStep);
+                }
+            }, true);
+
+            videoArea.appendChild(button);
+        }
+
+        button.dataset.action = action;
+        return button;
+    }
+
+
+    function updateButtonSize(videoArea) {
+        const buttonSize = videoArea.clientWidth * userSettings.btnSizeRatio;
+        const buttonSide = videoArea.clientWidth * userSettings.btnSideRatio;
+
+        videoArea.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
+            button.style.width = `${buttonSize}px`;
+            button.style.height = `${buttonSize}px`;
+            button.style.left = LEFT_BUTTON_IDS.includes(button.id) ? `${buttonSide}px` : "";
+            button.style.right = RIGHT_BUTTON_IDS.includes(button.id) ? `${buttonSide}px` : "";
+        });
+    }
+
+
+    function setButtonVisible(button, visible, offsetY = 0) {
+        if (!button) return;
+
+        if (visible) {
+            button.style.display = "flex";
+            requestAnimationFrame(() => {
+                button.style.opacity = "1";
+                button.style.pointerEvents = "auto";
+                button.style.transform = `translateY(calc(-50% + ${offsetY}px))`
+            });
+        } else {
+            button.style.opacity = "0";
+            button.style.pointerEvents = "none";
+            button.style.transform = "translateY(-50%)";
+            setTimeout(() => {
+                if (button.style.opacity === "0") button.style.display = "none";
+            }, userSettings.btnExpandDuration);
+        }
+    }
+
+    
+    function updateButtonState(videoArea) {
+        const showMainButton = isLocked || !isCtrlHidden(videoArea);
+
+        videoArea.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
+            const isExpanded = expandedButtonIds.has(button.id);
+            if (button.dataset.action == "lock") {
+                button.innerHTML = isLocked ? lockIcon : unlockIcon;
+                setButtonVisible(button, showMainButton);
+            } else if (button.dataset.action == "menu") {
+                button.innerHTML = isExpanded ? closeIcon : menuIcon;
+                setButtonVisible(button, showMainButton);
+            } else if (button.dataset.action == "backward") {
+                button.innerHTML = backwardIcon;
+                setButtonVisible(button, showMainButton && isExpanded, -videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+            } else if (button.dataset.action == "forward") {
+                button.innerHTML = forwardIcon;
+                setButtonVisible(button, showMainButton && isExpanded, videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+            } else {
+                button.innerHTML = "";
+                setButtonVisible(button, false);
+            }
+        });
+    }
+    
+
+    function setupButtons(videoArea) {
+        const leftAction = userSettings.buttons.left ?? DEFAULT_SETTINGS.buttons.left;
+        const rightAction = userSettings.buttons.right ?? DEFAULT_SETTINGS.buttons.right;
+
+        if (isLocked && leftAction !== "lock" && rightAction !== "lock") isLocked = false;
+        if (leftAction !== "menu") LEFT_BUTTON_IDS.forEach((id) => expandedButtonIds.delete(id));
+        if (rightAction !== "menu") RIGHT_BUTTON_IDS.forEach((id) => expandedButtonIds.delete(id));
+
+        createButton(videoArea, LEFT_BUTTON_ID, leftAction);
+        createButton(videoArea, LEFT_BACKWARD_BUTTON_ID, "backward");
+        createButton(videoArea, LEFT_FORWARD_BUTTON_ID, "forward");
+        createButton(videoArea, RIGHT_BUTTON_ID, rightAction);
+        createButton(videoArea, RIGHT_BACKWARD_BUTTON_ID, "backward");
+        createButton(videoArea, RIGHT_FORWARD_BUTTON_ID, "forward");
+        updateButtonSize(videoArea);
+        updateButtonState(videoArea);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 锁定按钮
+    // ============================================================
+
+    function finishCurrentGesture(videoArea) {
+        clearTimeout(pressTimer);
+        clearTimeout(clickTimer);
+        clickTimer = null;
+
+        const video = videoArea.querySelector("video");
+        if (video && gestureType != "") {
+            if (gestureType == "speed") {
+                onLongPressEnd(video, videoArea);
+            } else if (gestureType == "seek") {
+                onSeekEnd(video, videoArea);
+            } else if (gestureType == "brightness") {
+                onBrightnessEnd(videoArea);
+            } else if (gestureType == "volume") {
+                onVolumeEnd(videoArea);
+            }
+        }
+
+        isDown = false;
+        gestureType = "";
+    }
+
+
+    function onLockButtonClick(videoArea) {
+        isLocked = !isLocked;
+
+        if (isLocked) {
+            finishCurrentGesture(videoArea);
+            shield.style.zIndex = 100000;
+            setupButtons(videoArea);
+            hideCtrl(videoArea);
+        } else {
+            shield.style.zIndex = 20;
+            setupButtons(videoArea);
+            showCtrl(videoArea);
+        }
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 菜单按钮
+    // ============================================================
+
+    function onMenuButtonClick(videoArea, button) {
+        const buttonIds = button.id === LEFT_BUTTON_ID ? LEFT_BUTTON_IDS : RIGHT_BUTTON_IDS;
+        const [mainButtonId, backwardButtonId, forwardButtonId] = buttonIds;
+        const backwardButton = videoArea.querySelector("#" + backwardButtonId);
+        const forwardButton = videoArea.querySelector("#" + forwardButtonId);
+
+        if (expandedButtonIds.has(mainButtonId)) {
+            // 当前菜单展开 ⟶ 执行收起逻辑
+            buttonIds.forEach((id) => expandedButtonIds.delete(id));
+            button.innerHTML = menuIcon;
+            setButtonVisible(backwardButton, false);
+            setButtonVisible(forwardButton, false);
+        } else {
+            // 当前菜单收起 ⟶ 执行展开逻辑
+            buttonIds.forEach((id) => expandedButtonIds.add(id));
+            button.innerHTML = closeIcon;
+            updateButtonSize(videoArea);
+            setButtonVisible(backwardButton, true, -videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+            setButtonVisible(forwardButton, true, videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+        }
+    }
+
+    
+    function onQuickSeek(videoArea, seconds) {
+        const video = videoArea.querySelector("video");
+        if (!video) return;
+        video.currentTime = clamp(video.currentTime + seconds, 0, video.duration);
+
+        showToast(videoArea, `${seconds > 0 ? "快进" : "快退"} ${Math.abs(seconds)}s`);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
+    // #region 单指单击：控制栏
     // ============================================================
 
     function showCtrl(videoArea) {
@@ -234,11 +1170,37 @@
     }
 
 
-    function handleCtrl(videoArea) {
+    function isCtrlHidden(videoArea) {
         const playerContainer = videoArea.closest(".bpx-player-container");
-        if (!playerContainer) return;
-        const isHidden = playerContainer.getAttribute("data-ctrl-hidden") === "true";
-        isHidden ? showCtrl(videoArea) : hideCtrl(videoArea);
+        return playerContainer?.getAttribute("data-ctrl-hidden") === "true";
+    }
+
+
+    function bindCtrlObserver(videoArea) {
+        const playerContainer = videoArea.closest(".bpx-player-container");
+        if (playerContainer && currentPlayerContainer !== playerContainer) {
+            ctrlObserver?.disconnect();
+            currentPlayerContainer = playerContainer;
+
+            ctrlObserver = new MutationObserver(() => updateButtonState(videoArea));
+            ctrlObserver.observe(playerContainer, { attributes: true, attributeFilter: ["data-ctrl-hidden"] });
+        }
+    }
+
+
+    function keepCtrlVisible(videoArea) {
+        if (isLocked) return clearInterval(ctrlTimer);
+
+        showCtrl(videoArea);
+        ctrlTimer = resetInterval(ctrlTimer, () => {
+            if (isLocked) return clearInterval(ctrlTimer);
+            showCtrl(videoArea);
+        }, 1000);
+    }
+
+
+    function stopCtrlVisible() {
+        clearInterval(ctrlTimer);
     }
 
     // #endregion
@@ -246,7 +1208,7 @@
 
 
     // ============================================================
-    // #region 单指双击：播放/暂停
+    // #region 单指双击：播放暂停
     // ============================================================
 
     function onDoubleTap(video) {
@@ -263,8 +1225,10 @@
 
     function onLongPressStart(video, videoArea) {
         originalSpeed = video.playbackRate;
-        video.playbackRate = TARGET_SPEED;
-        showIconToast(videoArea, speedIcon, TARGET_SPEED.toFixed(1) + "x");
+        video.playbackRate = userSettings.targetSpeed;
+        const targetSpeed = Number(userSettings.targetSpeed);
+        const speedText = Number.isInteger(targetSpeed) ? targetSpeed.toFixed(1) : String(targetSpeed);
+        showIconToast(videoArea, speedIcon, speedText + "x");
     }
 
 
@@ -307,13 +1271,14 @@
 
 
     function onSeek(video, videoArea, clientX) {
-        startVal = startVal + (clientX - prevX) / (videoArea.clientWidth * HORIZONTAL_SENS) * video.duration;
+        startVal = startVal + (clientX - prevX) / (videoArea.clientWidth * (userSettings.horizontalSens / 100)) * video.duration;
         startVal = clamp(startVal, 0, video.duration);
         prevX = clientX;
         video.currentTime = startVal;
 
-        const point = getProgressPoint(videoArea, (startVal+3) / video.duration);
+        const point = getProgressPoint(videoArea, (startVal + 3) / video.duration);
         if (point) sendMouseEvent(point.progressBar, "mousemove", point.x, point.y);
+
         const previewTime = videoArea.querySelector(".bpx-player-progress-preview-time");
         if (previewTime) previewTime.textContent = formatTime(startVal);
 
@@ -336,12 +1301,13 @@
 
 
     // ============================================================
-    // #region 左纵向滑动：调节亮度
+    // #region 纵向滑动：调节亮度
     // ============================================================
 
     function getCurrentBrightness(video) {
         const filter = video.style.filter;
         if (!filter || !filter.includes("brightness")) return 1;
+
         const match = filter.match(/brightness\(([\d.]+)\)/);
         return match ? parseFloat(match[1]) : 1;
     }
@@ -354,17 +1320,17 @@
 
 
     function onBrightness(video, videoArea, clientY) {
-        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        startVal = clamp(startVal, 0, MAX_BRIGHTNESS);
+        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * (userSettings.verticalSens / 100));
+        startVal = clamp(startVal, 0, userSettings.maxBrightness / 100);
         prevY = clientY;
+
         video.style.filter = `brightness(${startVal})`;
         showIconToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
     function onBrightnessEnd(videoArea) {
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => hideToast(videoArea), TOAST_DELAY);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
     }
 
     // #endregion
@@ -372,27 +1338,54 @@
 
 
     // ============================================================
-    // #region 右纵向滑动：调节音量
+    // #region 纵向滑动：调节音量
     // ============================================================
+
+    function getGainNode(video) {
+        if (!gainNode) {
+            ctx = ctx || new (unsafeWindow.AudioContext || unsafeWindow.webkitAudioContext)();
+            sourceNode = ctx.createMediaElementSource(video);
+
+            gainNode = ctx.createGain();
+            gainNode.gain.value = 1;
+
+            sourceNode.connect(gainNode);
+            gainNode.connect(ctx.destination);
+        }
+        return gainNode;
+    }
+
+
+    function getCurrentVolume(video) {
+        if (gainNode && gainNode.gain.value > 1) return gainNode.gain.value;
+        return video.volume;
+    }
+
 
     function onVolumeStart(video, clientY) {
         prevY = clientY;
-        startVal = video.volume;
+        startVal = getCurrentVolume(video);
     }
 
 
     function onVolume(video, videoArea, clientY) {
-        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * VERTICAL_SENS);
-        startVal = clamp(startVal, 0, MAX_VOLUME);
+        startVal = startVal + (prevY - clientY) / (videoArea.clientHeight * (userSettings.verticalSens / 100));
+        startVal = clamp(startVal, 0, userSettings.maxVolume / 100);
         prevY = clientY;
-        video.volume = startVal;
+
+        if (startVal <= 1) {
+            video.volume = startVal;
+            if (gainNode) gainNode.gain.value = 1;
+        } else {
+            video.volume = 1;
+            getGainNode(video).gain.value = startVal;
+        }
         showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
     function onVolumeEnd(videoArea) {
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => hideToast(videoArea), TOAST_DELAY);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
     }
 
     // #endregion
@@ -403,14 +1396,13 @@
     // #region 手势识别与分发
     // ============================================================
 
-    // 手指按下时 → 长按
     function handleDown(e, videoArea) {
+        blockNativeEvent(e);
+        if (isLocked) return;
         if (!e.isPrimary || e.button == 2) return;
+
         const video = videoArea.querySelector("video");
         if (!video) return;
-
-        e.preventDefault();
-        e.stopPropagation();
 
         isDown = true;
         gestureType = "";
@@ -418,18 +1410,22 @@
         startY = e.clientY;
 
         // 启动长按计时器
-        pressTimer = setTimeout(() => {
-            if (gestureType == "") {
-                gestureType = "speed";
-                onLongPressStart(video, videoArea);
-            }
-        }, PRESS_DELAY);
+        if (userSettings.general.longPressSpeed) {
+            pressTimer = setTimeout(() => {
+                if (gestureType == "") {
+                    gestureType = "speed";
+                    onLongPressStart(video, videoArea);
+                }
+            }, userSettings.pressDelay);
+        }
     }
 
 
-    // 手指移动时 → 横向滑动/纵向滑动
     function handleMove(e, videoArea) {
+        blockNativeEvent(e);
+        if (isLocked) return;
         if (!isDown) return;
+
         const video = videoArea.querySelector("video");
         if (!video) return;
 
@@ -440,17 +1436,28 @@
 
         // 手势未确定，判断滑动方向
         if (gestureType == "" && (absX > 15 || absY > 15)) {
-            clearTimeout(pressTimer)
+            clearTimeout(pressTimer);
 
             if (absX > absY) {
-                gestureType = "seek";
-                onSeekStart(video, videoArea, e.clientX);
-            } else if (startX < videoArea.clientWidth / 2) {
-                gestureType = "brightness";
-                onBrightnessStart(video, e.clientY);
+                if (userSettings.general.horizontalSwipeSeek) {
+                    gestureType = "seek";
+                    onSeekStart(video, videoArea, e.clientX);
+                } else {
+                    gestureType = "none";
+                }
             } else {
-                gestureType = "volume";
-                onVolumeStart(video, e.clientY);
+                const zone = getGestureZone(videoArea, startX);
+                const action = userSettings.verticalSwipe[zone];
+
+                if (action == "brightness") {
+                    gestureType = "brightness";
+                    onBrightnessStart(video, e.clientY);
+                } else if (action == "volume") {
+                    gestureType = "volume";
+                    onVolumeStart(video, e.clientY);
+                } else {
+                    gestureType = "none";
+                }
             }
         }
 
@@ -467,8 +1474,9 @@
     }
 
 
-    // 手指抬起时 → 单击/双击/长按结束/滑动结束
     function handleUp(e, videoArea) {
+        blockNativeEvent(e);
+        if (isLocked) return;
         clearTimeout(pressTimer);
 
         const video = videoArea.querySelector("video");
@@ -488,12 +1496,12 @@
             if (!clickTimer) {
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    handleCtrl(videoArea);
-                }, CLICK_TIMEOUT);
+                    isCtrlHidden(videoArea) ? showCtrl(videoArea) : hideCtrl(videoArea);
+                }, userSettings.clickTimeout);
             } else {
                 clearTimeout(clickTimer);
                 clickTimer = null;
-                onDoubleTap(video);
+                if (userSettings.general.doubleTapPause) onDoubleTap(video);
             }
         }
 
@@ -521,51 +1529,63 @@
     // ============================================================
     // #region 初始化
     // ============================================================
-    function blockNativeEvent(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-    }
-
 
     function createSafeShield() {
         videoArea = document.querySelector(".bpx-player-video-area");
         if (!videoArea) return;
-        if (videoArea.querySelector("#" + SHIELD_ID)) return;
 
-        shield = document.createElement("div");
-        shield.id = SHIELD_ID;
-        shield.style.cssText = `
-            position: absolute;
-            z-index: 20;
-            top: 0;
-            left: 0;
+        shield = videoArea.querySelector("#" + SHIELD_ID);
+        if (!shield) {
+            shield = document.createElement("div");
+            shield.id = SHIELD_ID;
+            shield.style.cssText = `
+                position: absolute;
+                z-index: 20;
+                top: 0;
+                left: 0;
 
-            width: 100%;
-            height: 85%;
+                width: 100%;
+                height: 100%;
 
-            background: transparent;
+                background: transparent;
 
-            touch-action: none !important;
-            user-select: none;
-        `;
-        videoArea.appendChild(shield);
+                user-select: none;
+                touch-action: none !important;
+            `;
+            videoArea.appendChild(shield);
 
-        shield.addEventListener("pointerdown", (e) => handleDown(e, videoArea), true);
-        document.addEventListener("pointermove", (e) => handleMove(e, videoArea), true);
-        document.addEventListener("pointerup", (e) => handleUp(e, videoArea), true);
-        document.addEventListener("pointercancel", (e) => handleUp(e, videoArea), true);
+            shield.addEventListener("pointerdown", (e) => { handleDown(e, videoArea); shield.setPointerCapture(e.pointerId); }, true);
+            shield.addEventListener("pointermove", (e) => { handleMove(e, videoArea); }, true);
+            shield.addEventListener("pointerup", (e) => { handleUp(e, videoArea); shield.releasePointerCapture(e.pointerId); }, true);
+            shield.addEventListener("pointercancel", (e) => { handleUp(e, videoArea); shield.releasePointerCapture(e.pointerId); }, true);
 
-        shield.addEventListener("contextmenu", blockNativeEvent, true);
-        shield.addEventListener("click", blockNativeEvent, true);
-        shield.addEventListener("dblclick", blockNativeEvent, true);
-        shield.addEventListener("auxclick", blockNativeEvent, true);
+            shield.addEventListener("contextmenu", blockNativeEvent, true);
+            shield.addEventListener("click", blockNativeEvent, true);
+            shield.addEventListener("dblclick", blockNativeEvent, true);
+            shield.addEventListener("auxclick", blockNativeEvent, true);
+        }
+
+        setupButtons(videoArea);
+        bindCtrlObserver(videoArea)
+    }
+
+    
+    function scheduleCreateSafeShield() {
+        if (shieldTimer) return;
+
+        shieldTimer = setTimeout(() => {
+            shieldTimer = null;
+            createSafeShield();
+        }, 200);
+        console.log("scheduleCreateSafeShield");
     }
 
 
-    const observer = new MutationObserver(() => createSafeShield());
+    const observer = new MutationObserver(scheduleCreateSafeShield);
     observer.observe(document.body, { childList: true, subtree: true });
+
     window.addEventListener("load", createSafeShield);
+    createSafeShield();
 
     // #endregion
 
