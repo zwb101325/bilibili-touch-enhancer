@@ -26,15 +26,9 @@
 - **控制栏状态联动**：播放器控制栏显示 / 隐藏时，侧边按钮会同步更新显示状态。
 
 
-## 🚀 使用说明
-在 Bilibili 视频播放页面中，直接使用触屏或鼠标手势操作：
-- 单击：显示 / 隐藏控制栏  
-- 双击：播放 / 暂停  
-- 长按：倍速播放  
-- 横向滑动：调节视频进度  
-- 左半屏纵向滑动：调节亮度  
-- 右半屏纵向滑动：调节音量  
-
+## 🔗 脚本发布页面
+- **Greasy Fork**：[Bilibili Touch Enhancer](你的 Greasy Fork 脚本链接)
+- **GitHub**：[Bilibili Touch Enhancer](https://github.com/zwb101325/bilibili-touch-enhancer)
 
 ## 📦 安装
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
@@ -50,4 +44,4 @@
 
 
 ## ⭐ 支持项目
-如果这个项目对你有帮助，欢迎到 [GitHub](https://github.com/zwb101325/bilibili-touch-enhancer) 点个 ⭐ Star 支持一下！
+如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
