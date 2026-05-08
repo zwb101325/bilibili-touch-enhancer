@@ -74,8 +74,8 @@
         leftButtonAction: "lock",
         rightButtonAction: "menu",
         btnSeekStep: 10,
-        btnSizeRatio: 4,
-        btnSideRatio: 3,
+        btnSizeRatio: 5,
+        btnSideRatio: 4,
 
         // 其他参数
         toastDelay: 500,
