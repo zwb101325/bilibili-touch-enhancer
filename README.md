@@ -38,7 +38,7 @@
 - 同样支持鼠标操作
 
 
-## 🔗 脚本发布页面
+## 🔗 发布页面
 - [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
 - [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
 
