@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
+// @version      1.9.2
 // @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
 // @match        *://*.bilibili.com/video/*
@@ -22,7 +22,7 @@
     // #region 参数配置
     // ============================================================
 
-    const SETTINGS_KEY = "bte-settings-v1";
+    const SETTINGS_KEY = "bte-settings-v2";
     const TOAST_ID = "bte-toast";
     const SHIELD_ID = "bte-shield";
     const SETTINGS_PANEL_ID = "bte-settings-panel";
@@ -37,11 +37,6 @@
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
 
-    const ZONE_LABELS = {
-        left: "左侧",
-        right: "右侧"
-    };
-
     const VERTICAL_ACTIONS = {
         none: "无操作",
         brightness: "调节亮度",
@@ -55,31 +50,35 @@
     };
 
     const DEFAULT_SETTINGS = {
-        general: {
-            doubleTapPause: true,
-            longPressSpeed: true,
-            horizontalSwipeSeek: true
-        },
-        verticalSwipe: {
-            left: "brightness",
-            right: "volume"
-        },
-        buttons: {
-            left: "lock",
-            right: "menu"
-        },
-        quickSeekStep: 10,
+        // 双击
+        doubleTapPause: true,
         clickTimeout: 200,
+
+        // 长按
+        longPressSpeed: true,
         targetSpeed: 3.0,
         pressDelay: 300,
-        toastDelay: 500,
+
+        // 横向滑动
+        horizontalSwipeSeek: true,
         horizontalSens: 100,
+
+        // 纵向滑动
+        verticalSwipeLeft: "brightness",
+        verticalSwipeRight: "volume",
         verticalSens: 50,
         maxBrightness: 100,
         maxVolume: 100,
-        btnSizeRatio: 0.04,
-        btnSideRatio: 0.03,
-        btnExpandOffsetRatio: 0.05,
+
+        // 按钮区域
+        leftButtonAction: "lock",
+        rightButtonAction: "menu",
+        btnSeekStep: 10,
+        btnSizeRatio: 4,
+        btnSideRatio: 3,
+
+        // 其他参数
+        toastDelay: 500,
         btnExpandDuration: 180,
     };
 
@@ -122,9 +121,13 @@
 
 
 
+    // ============================================================
+    // #region CSS样式
+    // ============================================================
+
     const style = document.createElement("style");
-    style.textContent = `
-        @keyframes gestureSpeedPulse {
+    style.textContent = /*css*/`
+        @keyframes bteSpeedPulse {
             0%   { opacity: 0.3; filter: brightness(0.3); }
             25%  { opacity: 0.6; filter: brightness(0.6); }
             50%  { opacity: 1.0; filter: brightness(1.0); }
@@ -133,163 +136,270 @@
         }
 
 
-        /* 设置面板容器 */
+        /* #region 设置面板容器 */
+        #bte-settings-panel {
+            --bte-primary-blue: #6366f1;
+            --bte-primary-blue-soft: rgba(99, 102, 241, 0.14);
+            --bte-black: #111827;
+            --bte-gray: #f1f2f3;
+        }
+
+        #bte-settings-panel,
+        #bte-settings-panel * {
+            box-sizing: border-box;
+        }
+
         .bte-card-wrap {
-            width: min(540px, calc(100vw - 28px));
-            max-height: min(720px, calc(100vh - 28px));
+            width: min(540px, calc(100vw - 48px));
+            max-height: min(720px, calc(100vh - 48px));
             overflow: hidden;
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            border-radius: 18px;
-            color: #111827;
-            background: rgba(255, 255, 255, 0.98);
-            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            border-radius: 30px;
+            color: var(--bte-black);
+            background: var(--bte-gray);
+            box-shadow: 0 22px 70px rgba(15, 23, 42, 0.22);
         }
 
         .bte-card {
-            max-height: min(720px, calc(100vh - 28px));
-            box-sizing: border-box;
+            max-height: min(720px, calc(100vh - 48px));
             overflow: auto;
-            padding: 14px 12px 14px 12px;
-            margin-right: 6px;
+            padding: 24px;
         }
 
+        .bte-card::-webkit-scrollbar {
+            width: 10px;
+        }
 
-        /* 设置面板头部 */
+        .bte-card::-webkit-scrollbar-thumb {
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.45);
+        }
+
+        /* #endregion */
+
+
+        /* #region 设置面板页头 */
         .bte-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            padding: 2px 4px 10px;
+            gap: 14px;
+            padding-bottom: 18px;
         }
 
         .bte-title {
-            font-size: 17px;
-            font-weight: 700;
+            min-width: 0;
+            font-size: 25px;
+            font-weight: 800;
             line-height: 1.2;
+            letter-spacing: -0.03em;
         }
 
-        /* 设置面板按钮 */
-        .bte-close-button {
-            display: flex;
+        .bte-title,
+        .bte-summary-title,
+        .bte-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* #endregion */
+
+        
+        /* #region 设置面板按钮 */
+        .bte-button {
+            position: relative;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 32px;
-            height: 32px;
-            border: 0;
+            border: 1px solid transparent;
             border-radius: 999px;
-            color: #4b5563;
-            background: #f3f4f6;
+            padding: 10px 18px;
             cursor: pointer;
             font-family: inherit;
+            font-size: 14px;
+            font-weight: 700;
+            transition: 
+                border-color 0.18s ease,
+                box-shadow 0.18s ease,
+                transform 0.18s ease;
         }
 
-        .bte-close-button svg {
-            width: 20px;
-            height: 20px;
-            display: block;
-            fill: currentColor;
+        .bte-section:hover,
+        .bte-button:hover {
+            z-index: 1;
+            border-color: #4aa3ff;
+            box-shadow: 0 12px 26px rgba(59, 130, 246, 0.16), 0 8px 18px rgba(15, 23, 42, 0.08);
+            transform: translateY(-2px);
+        }
+
+        #bte-close-button {
+            width: 46px;
+            height: 46px;
+            flex: 0 0 auto;
+            padding: 0;
+            color: var(--bte-black);
+            background: #ffffff;
+        }
+
+        #bte-close-button svg {
+            width: 23px;
+            height: 23px;
             pointer-events: none;
         }
 
-        .bte-button {
-            border: 0;
-            border-radius: 999px;
-            padding: 8px 14px;
-            color: #374151;
-            background: #f3f4f6;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 13px;
+        #bte-reset-button {
+            color: var(--bte-black);
+            background: #ffffff;
         }
 
-        .bte-close-button:hover,
-        .bte-button:hover {
-            background: #e5e7eb;
+        #bte-finish-button {
+            color: #ffffff;
+            background: var(--bte-primary-blue);
         }
+        /* #endregion */
 
-        /* 设置分组 */
+
+        /* #region 设置面板分组 */
         .bte-section {
-            padding: 0 0 8px;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        .bte-section:first-of-type {
-            border-top: 0;
+            position: relative;
+            margin-bottom: 14px;
+            border: 1px solid transparent;
+            border-radius: 22px;
+            background: #ffffff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            overflow: hidden;
+            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
         }
 
         .bte-section > summary {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 0 8px;
-            color: #374151;
+            min-height: 62px;
+            padding: 0 22px;
             cursor: pointer;
             list-style: none;
-            font-size: 15px;
-            font-weight: 650;
+            font-size: 18px;
+            font-weight: 800;
+            user-select: none;
         }
 
         .bte-section > summary::-webkit-details-marker {
             display: none;
         }
 
-        .bte-section > summary::after {
-            content: "›";
-            font-size: 22px;
-            line-height: 1;
-            color: #6b7280;
-            transform: rotate(0deg);
+        .bte-summary-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 20px;
+            height: 20px;
             transition: transform 0.16s ease;
+            pointer-events: none;
         }
 
-        .bte-section[open] > summary::after {
+        .bte-summary-arrow svg {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
+
+        .bte-section[open] > summary .bte-summary-arrow {
             transform: rotate(90deg);
         }
 
+        .bte-summary {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
 
-        /* 设置行和标签 */
+        .bte-summary-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 999px;
+            flex: 0 0 auto;
+        }
+
+        .bte-summary-icon svg {
+            width: 21px;
+            height: 21px;
+            display: block;
+        }
+
+        .bte-summary-icon-purple {
+            color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.14);
+        }
+
+        .bte-summary-icon-blue {
+            color: var(--bte-primary-blue);
+            background: var(--bte-primary-blue-soft);
+        }
+
+        .bte-summary-icon-green {
+            color: #22c55e;
+            background: rgba(34, 197, 94, 0.14);
+        }
+
+        .bte-summary-icon-orange {
+            color: #f59e0b;
+            background: rgba(245, 158, 11, 0.14);
+        }
+
+        .bte-summary-icon-red {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.14);
+        }
+
+        .bte-summary-title {
+            min-width: 0;
+        }
+
+        .bte-section[open] {
+            padding-bottom: 14px;
+        }
+        /* #endregion */
+
+
+        /* #region 设置面板行和标签 */
         .bte-row {
             display: grid;
             grid-template-columns: 1fr auto;
             align-items: center;
             gap: 12px;
-            min-height: 46px;
+            min-height: 56px;
+            margin: 0 22px 10px;
+            padding: 0 18px;
+            border: 1px solid rgba(17, 24, 39, 0.06);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
         }
 
-        .bte-number-setting-row {
-            grid-template-columns: minmax(130px, 1fr) minmax(300px, 360px);
+        .bte-section .bte-row:last-child {
+            margin-bottom: 0;
         }
 
         .bte-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: #111827;
+            min-width: 0;
             font-size: 15px;
-            font-weight: 400;
-            font-family: inherit;
+            font-weight: 700;
         }
 
-        .bte-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            flex: 0 0 auto;
-            background: #111827;
-        }
-
-        .bte-dot-left { background: #3b82f6; }
-        .bte-dot-center { background: #8b5cf6; }
-        .bte-dot-right { background: #f59e0b; }
+        /* #endregion */
 
 
-        /* 开关控件 */
+        /* #region 开关控件 */
         .bte-switch-row {
             position: relative;
             width: 38px;
             height: 22px;
-            flex: 0 0 auto;
         }
 
         .bte-switch-row input {
@@ -319,120 +429,84 @@
         }
 
         .bte-switch-row input:checked + .bte-slider {
-            background: #6366f1;
+            background: var(--bte-primary-blue);
         }
 
         .bte-switch-row input:checked + .bte-slider::before {
             transform: translateX(16px);
         }
+        /* #endregion */
 
 
-        /* 下拉框控件 */
+        /* #region 选择控件 */
         .bte-select-control {
-            width: 150px;
-            height: 36px;
-            box-sizing: border-box;
+            width: 144px;
+            height: 34px;
             border: 1px solid #e5e7eb;
-            border-radius: 16px;
+            border-radius: 14px;
             outline: none;
             color: #111827;
             background: #fff;
             font-family: inherit;
-            font-size: 14px;
-            padding: 0 34px 0 14px;
-            appearance: none;
-            background-image:
-                linear-gradient(45deg, transparent 50%, #6b7280 50%),
-                linear-gradient(135deg, #6b7280 50%, transparent 50%);
-            background-position:
-                calc(100% - 18px) 15px,
-                calc(100% - 12px) 15px;
-            background-size: 6px 6px, 6px 6px;
-            background-repeat: no-repeat;
+            font-size: 13px;
+            padding: 0 34px 0 12px;
         }
 
-        .bte-select-control:focus {
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+        /*#endregion */
+
+
+        /*#region 数字控件 */
+        .bte-number-setting-row {
+            grid-template-columns: minmax(112px, 1fr) minmax(210px, 1fr);
         }
 
-
-        /* 数字步进控件 */
         .bte-number-row {
             width: 100%;
             min-width: 0;
-            height: 44px;
-            box-sizing: border-box;
+            height: 40px;
             display: grid;
-            grid-template-columns: minmax(220px, 1fr) 64px;
+            grid-template-columns: minmax(0, 1fr) 62px;
             align-items: center;
-            column-gap: 12px;
-            background: transparent;
+            column-gap: 10px;
         }
 
         .bte-number-control {
             width: 100%;
-            height: 32px;
+            height: 28px;
             margin: 0;
-            accent-color: #6366f1;
+            accent-color: var(--bte-primary-blue);
             cursor: pointer;
-        }
-
-        .bte-number-control:focus {
-            outline: none;
-        }
-
-        .bte-number-control:focus-visible {
-            outline: 3px solid rgba(99, 102, 241, 0.18);
-            outline-offset: 3px;
-            border-radius: 999px;
         }
 
         .bte-number-txt {
             display: flex;
             align-items: center;
             justify-content: center;
-            min-width: 0;
-            width: 64px;
-            height: 32px;
-            box-sizing: border-box;
+            width: 62px;
+            height: 30px;
             border-radius: 999px;
-            color: #111827;
-            background: #f3f4f6;
-            font-family: inherit;
-            font-size: 15px;
-            font-weight: 400;
+            color: var(--bte-black);
+            background: var(--bte-gray);
+            font-size: 14px;
+            font-weight: 700;
             font-variant-numeric: tabular-nums;
             user-select: none;
-            letter-spacing: 0;
         }
-
-        @media (max-width: 520px) {
-            .bte-number-setting-row {
-                grid-template-columns: 1fr;
-                align-items: start;
-                gap: 4px;
-                padding: 4px 0 8px;
-            }
-
-            .bte-number-row {
-                grid-template-columns: minmax(0, 1fr) 64px;
-            }
-        }
+        /* #endregion */
         
 
-        /* 底部按钮 */
+        /* #region 设置面板页尾 */
         .bte-footer {
             display: flex;
             align-items: center;
             justify-content: flex-end;
             gap: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #e5e7eb;
+            padding-top: 4px;
         }
+        /* #endregion */
 
-        
-        /* 播放器侧边按钮样式 */
+
+        /* #region 播放器按钮 */
         .${BUTTON_CLASS}:hover {
             background: rgba(0, 0, 0, 0.62);
         }
@@ -441,11 +515,13 @@
             width: 55%;
             height: 55%;
             display: block;
-            fill: currentColor;
             pointer-events: none;
         }
+        /* #endregion */
     `;
     document.head.appendChild(style);
+
+    // #endregion
 
 
 
@@ -456,13 +532,13 @@
     const speedIcon = `
         <svg xmlns="http://www.w3.org/2000/svg" width="34" height="20" viewBox="0 0 111 66" style="overflow:visible">
             <g transform="matrix(0,3,-3,0,94.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0.36s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:bteSpeedPulse 1.2s infinite;animation-delay:0.36s"/>
             </g>
             <g transform="matrix(0,3,-3,0,55.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0.18s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:bteSpeedPulse 1.2s infinite;animation-delay:0.18s"/>
             </g>
             <g transform="matrix(0,3,-3,0,16.5,32.5)">
-                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:gestureSpeedPulse 1.2s infinite;animation-delay:0s"/>
+                <path d="M6.138,3.546 C6.468,4.106 6.278,4.826 5.718,5.156 C5.538,5.266 5.338,5.326 5.118,5.326 C5.118,5.326 -5.122,5.326 -5.122,5.326 C-5.772,5.326 -6.302,4.796 -6.302,4.146 C-6.302,3.936 -6.242,3.726 -6.142,3.546 C-6.142,3.546 -1.352,-4.554 -1.352,-4.554 C-0.912,-5.294 0.048,-5.544 0.798,-5.104 C1.028,-4.974 1.218,-4.784 1.348,-4.554 C1.348,-4.554 6.138,3.546 6.138,3.546z" fill="rgb(255,255,255)" style="animation:bteSpeedPulse 1.2s infinite;animation-delay:0s"/>
             </g>
         </svg>`;
 
@@ -508,6 +584,49 @@
             <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z" fill="currentColor" />
         </svg>`;
 
+    const arrowIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M8.5 5L15.5 12L8.5 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+
+    const doubleTapIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M7 6.5L12 11L17 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7 14.5L12 19L17 14.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        `;
+
+    const longPressIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M12 4V16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M8 12L12 16L16 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6 19V21H18V19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+
+    const horizontalSwipeIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <path d="M3 11H21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M7 7L3 11L7 15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M17 7L21 11L17 15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+
+    const verticalSwipeIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <g transform="rotate(90 12 12)">
+                <path d="M3 11H21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                <path d="M7 7L3 11L7 15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M17 7L21 11L17 15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+        </svg>`;
+
+
+    const buttonAreaIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+            <rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/>
+            <circle cx="8.5" cy="12" r="1.8" fill="currentColor"/>
+            <circle cx="15.5" cy="12" r="1.8" fill="currentColor"/>
+        </svg>`;
+        
     // #endregion
 
 
@@ -543,10 +662,10 @@
 
 
     function formatTime(seconds) {
-        const safeSeconds = Number.isFinite(seconds) ? seconds : 0;
-        const hr = Math.floor(safeSeconds / 3600);
-        const min = Math.floor((safeSeconds % 3600) / 60);
-        const sec = Math.ceil(safeSeconds % 60);
+        seconds = Math.ceil(Number.isFinite(seconds) ? seconds : 0);
+        const hr = Math.floor(seconds / 3600);
+        const min = Math.floor((seconds % 3600) / 60);
+        const sec = seconds % 60;
 
         if (hr > 0) return `${hr}:${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
         return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
@@ -631,16 +750,23 @@
     // #region 设置面板
     // ============================================================
 
-    function buildSwitchRow(label, group, key) {
-        const checked = userSettings[group][key] ? "checked" : "";
+    function buildSummaryRow(title, icon, colorClass) {
+        return `
+            <div class="bte-summary">
+                <span class="bte-summary-icon ${colorClass}">${icon}</span>
+                <span class="bte-summary-title">${title}</span>
+            </div>
+            <span class="bte-summary-arrow">${arrowIcon}</span>
+        `;
+    }
 
+
+    function buildSwitchRow(label, key) {
+        const checked = userSettings[key] ? "checked" : "";
         return `
             <div class="bte-row">
-                <div class="bte-label">
-                    <span class="bte-dot"></span>
-                    <span>${label}</span>
-                </div>
-                <label class="bte-switch-row" data-setting-group="${group}" data-setting-key="${key}">
+                <span class="bte-label">${label}</span>
+                <label class="bte-switch-row" data-setting-key="${key}">
                     <input class="bte-switch-control" type="checkbox" ${checked} >
                     <span class="bte-slider"></span>
                 </label>
@@ -649,8 +775,8 @@
     }
 
 
-    function buildSelectRow(group, zone, options) {
-        const value = userSettings[group][zone];
+    function buildSelectRow(label, key, options) {
+        const value = userSettings[key] ?? DEFAULT_SETTINGS[key];
         const optionHtml = Object.entries(options).map(([optionValue, label]) => {
             const selected = optionValue === value ? "selected" : "";
             return `<option value="${optionValue}" ${selected}>${label}</option>`;
@@ -658,11 +784,8 @@
 
         return `
             <div class="bte-row">
-                <div class="bte-label">
-                    <span class="bte-dot bte-dot-${zone}"></span>
-                    <span>${ZONE_LABELS[zone]}</span>
-                </div>
-                <div class="bte-select-row" data-setting-group="${group}" data-setting-key="${zone}">
+                <span class="bte-label">${label}</span>
+                <div class="bte-select-row" data-setting-key="${key}">
                     <select class="bte-select-control">${optionHtml}</select>
                 </div>
             </div>
@@ -672,12 +795,9 @@
 
     function buildNumberRow(label, key, min, max, step, unit = "") {
         const value = userSettings[key] ?? DEFAULT_SETTINGS[key];
-        
         return `
             <div class="bte-row bte-number-setting-row">
-                <div class="bte-label">
-                    <span>${label}</span>
-                </div>
+                <span class="bte-label">${label}</span>
                 <div class="bte-number-row" data-setting-key="${key}" data-unit="${unit}">
                     <input class="bte-number-control" type="range" min="${min}" max="${max}" step="${step}" value="${value}">
                     <span class="bte-number-txt">${formatNumberText(value, step, unit)}</span>
@@ -689,15 +809,13 @@
 
     function updateSettingsPanel(panel) {
         panel.querySelectorAll(".bte-switch-row").forEach((switchRow) => {
-            const group = switchRow.dataset.settingGroup;
             const key = switchRow.dataset.settingKey;
-            switchRow.querySelector(".bte-switch-control").checked = userSettings[group][key];
+            switchRow.querySelector(".bte-switch-control").checked = userSettings[key];
         });
 
         panel.querySelectorAll(".bte-select-row").forEach((selectRow) => {
-            const group = selectRow.dataset.settingGroup;
             const key = selectRow.dataset.settingKey;
-            selectRow.querySelector(".bte-select-control").value = userSettings[group][key];
+            selectRow.querySelector(".bte-select-control").value = userSettings[key];
         });
 
         panel.querySelectorAll(".bte-number-row").forEach((numberRow) => {
@@ -720,47 +838,49 @@
                     <div class="bte-card">
                         <div class="bte-header">
                             <div class="bte-title">Bilibili Touch Enhancer 设置</div>
-                            <button class="bte-close-button" type="button" data-action="close">${closeIcon}</button>
+                            <button id="bte-close-button" class="bte-button" type="button" data-action="close">${closeIcon}</button>
                         </div>
 
                         <details class="bte-section">
-                            <summary>双击</summary>
-                            ${buildSwitchRow("双击暂停", "general", "doubleTapPause")}
+                            <summary>${buildSummaryRow("双击", doubleTapIcon, "bte-summary-icon-purple")}</summary>
+                            ${buildSwitchRow("双击暂停", "doubleTapPause")}
                             ${buildNumberRow("双击判定间隔", "clickTimeout", 100, 1000, 100, "ms")}
                         </details>
 
                         <details class="bte-section">
-                            <summary>长按</summary>
-                            ${buildSwitchRow("长按倍速", "general", "longPressSpeed")}
+                            <summary>${buildSummaryRow("长按", longPressIcon, "bte-summary-icon-blue")}</summary>
+                            ${buildSwitchRow("长按倍速", "longPressSpeed")}
                             ${buildNumberRow("长按播放速度", "targetSpeed", 0.25, 10, 0.25, "x")}
                             ${buildNumberRow("长按触发延迟", "pressDelay", 100, 1000, 100, "ms")}
                         </details>
 
                         <details class="bte-section">
-                            <summary>横向滑动</summary>
-                            ${buildSwitchRow("滑动快进", "general", "horizontalSwipeSeek")}
+                            <summary>${buildSummaryRow("横向滑动", horizontalSwipeIcon, "bte-summary-icon-green")}</summary>
+                            ${buildSwitchRow("横向滑动快进", "horizontalSwipeSeek")}
                             ${buildNumberRow("横向滑动灵敏度", "horizontalSens", 10, 300, 10, "%")}
                         </details>
 
                         <details class="bte-section">
-                            <summary>纵向滑动</summary>
-                            ${buildSelectRow("verticalSwipe", "left", VERTICAL_ACTIONS)}
-                            ${buildSelectRow("verticalSwipe", "right", VERTICAL_ACTIONS)}
+                            <summary>${buildSummaryRow("纵向滑动", verticalSwipeIcon, "bte-summary-icon-orange")}</summary>
+                            ${buildSelectRow("左侧", "verticalSwipeLeft", VERTICAL_ACTIONS)}
+                            ${buildSelectRow("右侧", "verticalSwipeRight", VERTICAL_ACTIONS)}
                             ${buildNumberRow("纵向滑动灵敏度", "verticalSens", 10, 300, 10, "%")}
                             ${buildNumberRow("最大亮度", "maxBrightness", 10, 300, 10, "%")}
                             ${buildNumberRow("最大音量", "maxVolume", 10, 300, 10, "%")}
                         </details>
 
                         <details class="bte-section">
-                            <summary>按钮区域</summary>
-                            ${buildSelectRow("buttons", "left", BUTTON_ACTIONS)}
-                            ${buildSelectRow("buttons", "right", BUTTON_ACTIONS)}
-                            ${buildNumberRow("按钮跳转时长", "quickSeekStep", 1, 120, 5, "s")}
+                            <summary>${buildSummaryRow("按钮区域", buttonAreaIcon, "bte-summary-icon-red")}</summary>
+                            ${buildSelectRow("左侧", "leftButtonAction", BUTTON_ACTIONS)}
+                            ${buildSelectRow("右侧", "rightButtonAction", BUTTON_ACTIONS)}
+                            ${buildNumberRow("按钮跳转时长", "btnSeekStep", 1, 30, 1, "s")}
+                            ${buildNumberRow("按钮尺寸", "btnSizeRatio", 1, 10, 1, "%")}
+                            ${buildNumberRow("按钮边距", "btnSideRatio", 1, 10, 1, "%")}
                         </details>
 
                         <div class="bte-footer">
-                            <button class="bte-button" type="button" data-action="reset">恢复默认</button>
-                            <button class="bte-button" type="button" data-action="close">完成</button>
+                            <button id="bte-reset-button" class="bte-button" type="button" data-action="reset">恢复默认</button>
+                            <button id="bte-finish-button" class="bte-button" type="button" data-action="close">完成</button>
                         </div>
                     </div>
                 </div>
@@ -773,6 +893,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                padding: 24px;
 
                 background: rgba(15, 23, 42, 0.28);
                 backdrop-filter: blur(6px);
@@ -800,20 +921,19 @@
             panel.addEventListener("change", (e) => {
                 const switchRow = e.target.closest(".bte-switch-row");
                 if (switchRow) {
-                    const group = switchRow.dataset.settingGroup;
                     const key = switchRow.dataset.settingKey;
-                    userSettings[group][key] = e.target.checked;
+                    userSettings[key] = e.target.checked;
                     saveSettings();
+                    setupButtons(videoArea);
                     return;
                 }
 
                 const selectRow = e.target.closest(".bte-select-row");
                 if (selectRow) {
-                    const group = selectRow.dataset.settingGroup;
                     const key = selectRow.dataset.settingKey;
-                    userSettings[group][key] = e.target.value;
+                    userSettings[key] = e.target.value;
                     saveSettings();
-                    if (group === "buttons") setupButtons(videoArea);
+                    setupButtons(videoArea);
                     return;
                 }
             });
@@ -827,6 +947,7 @@
                     userSettings[key] = value;
                     numberRow.querySelector(".bte-number-txt").textContent = formatNumberText(value, e.target.step, numberRow.dataset.unit);
                     saveSettings();
+                    setupButtons(videoArea);
                     return;
                 }
             });
@@ -866,7 +987,7 @@
                 padding: 12px 24px;
                 border-radius: 8px;
 
-                color: #fff;
+                color: #ffffff;
                 background: rgba(0,0,0,0.75);
                 box-shadow: 0 4px 10px rgba(0,0,0,0.3);
                 backdrop-filter: blur(4px);
@@ -945,7 +1066,7 @@
                 border: 1px solid rgba(255, 255, 255, 0.36);
                 border-radius: 999px;
 
-                color: #fff;
+                color: #ffffff;
                 background: rgba(0, 0, 0, 0.46);
                 box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
                 backdrop-filter: blur(6px);
@@ -973,9 +1094,9 @@
                 } else if (button.dataset.action == "menu") {
                     onMenuButtonClick(videoArea, button);
                 } else if (button.dataset.action == "backward") {
-                    onQuickSeek(videoArea, -userSettings.quickSeekStep);
+                    onQuickSeek(videoArea, -userSettings.btnSeekStep);
                 } else if (button.dataset.action == "forward") {
-                    onQuickSeek(videoArea, userSettings.quickSeekStep);
+                    onQuickSeek(videoArea, userSettings.btnSeekStep);
                 }
             }, true);
 
@@ -988,8 +1109,8 @@
 
 
     function updateButtonSize(videoArea) {
-        const buttonSize = videoArea.clientWidth * userSettings.btnSizeRatio;
-        const buttonSide = videoArea.clientWidth * userSettings.btnSideRatio;
+        const buttonSize = videoArea.clientWidth * userSettings.btnSizeRatio / 100;
+        const buttonSide = videoArea.clientWidth * userSettings.btnSideRatio / 100;
 
         videoArea.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             button.style.width = `${buttonSize}px`;
@@ -1034,10 +1155,10 @@
                 setButtonVisible(button, showMainButton);
             } else if (button.dataset.action == "backward") {
                 button.innerHTML = backwardIcon;
-                setButtonVisible(button, showMainButton && isExpanded, -videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+                setButtonVisible(button, showMainButton && isExpanded, -videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
             } else if (button.dataset.action == "forward") {
                 button.innerHTML = forwardIcon;
-                setButtonVisible(button, showMainButton && isExpanded, videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+                setButtonVisible(button, showMainButton && isExpanded, videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
             } else {
                 button.innerHTML = "";
                 setButtonVisible(button, false);
@@ -1047,8 +1168,10 @@
     
 
     function setupButtons(videoArea) {
-        const leftAction = userSettings.buttons.left ?? DEFAULT_SETTINGS.buttons.left;
-        const rightAction = userSettings.buttons.right ?? DEFAULT_SETTINGS.buttons.right;
+        if (!videoArea) return;
+
+        const leftAction = userSettings.leftButtonAction ?? DEFAULT_SETTINGS.leftButtonAction;
+        const rightAction = userSettings.rightButtonAction ?? DEFAULT_SETTINGS.rightButtonAction;
 
         if (isLocked && leftAction !== "lock" && rightAction !== "lock") isLocked = false;
         if (leftAction !== "menu") LEFT_BUTTON_IDS.forEach((id) => expandedButtonIds.delete(id));
@@ -1135,8 +1258,8 @@
             buttonIds.forEach((id) => expandedButtonIds.add(id));
             button.innerHTML = closeIcon;
             updateButtonSize(videoArea);
-            setButtonVisible(backwardButton, true, -videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
-            setButtonVisible(forwardButton, true, videoArea.clientWidth * userSettings.btnExpandOffsetRatio);
+            setButtonVisible(backwardButton, true, -videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
+            setButtonVisible(forwardButton, true, videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
         }
     }
 
@@ -1356,15 +1479,9 @@
     }
 
 
-    function getCurrentVolume(video) {
-        if (gainNode && gainNode.gain.value > 1) return gainNode.gain.value;
-        return video.volume;
-    }
-
-
     function onVolumeStart(video, clientY) {
         prevY = clientY;
-        startVal = getCurrentVolume(video);
+        startVal = gainNode?.gain.value > 1 ? gainNode.gain.value : video.volume;
     }
 
 
@@ -1410,7 +1527,7 @@
         startY = e.clientY;
 
         // 启动长按计时器
-        if (userSettings.general.longPressSpeed) {
+        if (userSettings.longPressSpeed) {
             pressTimer = setTimeout(() => {
                 if (gestureType == "") {
                     gestureType = "speed";
@@ -1439,7 +1556,7 @@
             clearTimeout(pressTimer);
 
             if (absX > absY) {
-                if (userSettings.general.horizontalSwipeSeek) {
+                if (userSettings.horizontalSwipeSeek) {
                     gestureType = "seek";
                     onSeekStart(video, videoArea, e.clientX);
                 } else {
@@ -1447,7 +1564,7 @@
                 }
             } else {
                 const zone = getGestureZone(videoArea, startX);
-                const action = userSettings.verticalSwipe[zone];
+                const action = zone === "left" ? userSettings.verticalSwipeLeft : userSettings.verticalSwipeRight;
 
                 if (action == "brightness") {
                     gestureType = "brightness";
@@ -1501,7 +1618,7 @@
             } else {
                 clearTimeout(clickTimer);
                 clickTimer = null;
-                if (userSettings.general.doubleTapPause) onDoubleTap(video);
+                if (userSettings.doubleTapPause) onDoubleTap(video);
             }
         }
 
@@ -1577,7 +1694,6 @@
             shieldTimer = null;
             createSafeShield();
         }, 200);
-        console.log("scheduleCreateSafeShield");
     }
 
 
