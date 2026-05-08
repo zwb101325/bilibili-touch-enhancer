@@ -28,7 +28,7 @@
 
 ## 🔗 脚本发布页面
 - [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
-- [GitHub](https://github.com/zwb101325/bilibili-touch-enhancer)
+- [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
 
 ## 📦 安装
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
