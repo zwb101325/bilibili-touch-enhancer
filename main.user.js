@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
+// @version      1.9.3
 // @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
 // @match        *://*.bilibili.com/video/*
@@ -508,7 +508,7 @@
 
         /* #region 播放器按钮 */
         .${BUTTON_CLASS}:hover {
-            background: rgba(0, 0, 0, 0.62);
+            background: rgba(0, 0, 0, 0.6) !important;
         }
 
         .${BUTTON_CLASS} svg {
@@ -1067,8 +1067,7 @@
                 border-radius: 999px;
 
                 color: #ffffff;
-                background: rgba(0, 0, 0, 0.46);
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+                background: rgba(0, 0, 0, 0.4);
                 backdrop-filter: blur(6px);
                 opacity: 0;
                 
