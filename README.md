@@ -26,10 +26,6 @@
 - **控制栏状态联动**：播放器控制栏显示 / 隐藏时，侧边按钮会同步更新显示状态。
 
 
-## 🔗 脚本发布页面
-- [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
-- [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
-
 ## 📦 安装
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
 2. 访问 [本脚本页面](https://greasyfork.org/zh-CN/scripts/573952)
@@ -45,3 +41,9 @@
 
 ## ⭐ 支持项目
 如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
+
+
+## 🔗 脚本发布页面
+- [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
+- [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
+
