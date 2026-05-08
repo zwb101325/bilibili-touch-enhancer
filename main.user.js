@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.3
+// @version      1.9.4
 // @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
 // @match        *://*.bilibili.com/video/*
@@ -22,7 +22,7 @@
     // #region 参数配置
     // ============================================================
 
-    const SETTINGS_KEY = "bte-settings-v2";
+    const SETTINGS_KEY = "bte-settings-v1";
     const TOAST_ID = "bte-toast";
     const SHIELD_ID = "bte-shield";
     const SETTINGS_PANEL_ID = "bte-settings-panel";
