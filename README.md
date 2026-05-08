@@ -38,11 +38,10 @@
 - 同样支持鼠标操作
 
 
-## ⭐ 支持项目
-如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
-
-
 ## 🔗 脚本发布页面
 - [**GitHub**](https://github.com/zwb101325/bilibili-touch-enhancer)
 - [**Greasy Fork**](https://greasyfork.org/zh-CN/scripts/573952)
 
+
+## ⭐ 支持项目
+如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
