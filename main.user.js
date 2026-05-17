@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.4
+// @version      1.9.5
 // @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
 // @match        *://*.bilibili.com/video/*
@@ -36,6 +36,11 @@
     const RIGHT_FORWARD_BUTTON_ID = "bte-right-forward-button";
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
+
+    const FULLSCREEN_BUTTON_SIZE = 52;
+    const BUTTON_SIZE = 40;
+    const TOAST_DELAY = 500;
+    const BUTTON_EXPAND_DURATION = 180;
 
     const VERTICAL_ACTIONS = {
         none: "无操作",
@@ -74,12 +79,6 @@
         leftButtonAction: "lock",
         rightButtonAction: "menu",
         btnSeekStep: 10,
-        btnSizeRatio: 5,
-        btnSideRatio: 4,
-
-        // 其他参数
-        toastDelay: 500,
-        btnExpandDuration: 180,
     };
 
     let userSettings = loadSettings();
@@ -507,10 +506,6 @@
 
 
         /* #region 播放器按钮 */
-        .${BUTTON_CLASS}:hover {
-            background: rgba(0, 0, 0, 0.6) !important;
-        }
-
         .${BUTTON_CLASS} svg {
             width: 55%;
             height: 55%;
@@ -672,6 +667,13 @@
     }
 
     
+    function isPlayerFullscreen(videoArea) {
+        const playerContainer = videoArea?.closest(".bpx-player-container");
+        const screenType = playerContainer?.getAttribute("data-screen");
+        return screenType === "web" || screenType === "full";
+    }
+
+
     function sendMouseEvent(element, type, x = 0, y = 0) {
         if (!element) return;
 
@@ -874,8 +876,6 @@
                             ${buildSelectRow("左侧", "leftButtonAction", BUTTON_ACTIONS)}
                             ${buildSelectRow("右侧", "rightButtonAction", BUTTON_ACTIONS)}
                             ${buildNumberRow("按钮跳转时长", "btnSeekStep", 1, 30, 1, "s")}
-                            ${buildNumberRow("按钮尺寸", "btnSizeRatio", 1, 10, 1, "%")}
-                            ${buildNumberRow("按钮边距", "btnSideRatio", 1, 10, 1, "%")}
                         </details>
 
                         <div class="bte-footer">
@@ -988,16 +988,16 @@
                 border-radius: 8px;
 
                 color: #ffffff;
-                background: rgba(0,0,0,0.75);
-                box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                backdrop-filter: blur(4px);
+                background: rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(8px);
 
                 font-family: "Segoe UI", sans-serif;
                 font-size: 20px;
-                font-weight: 500;
+                font-weight: 600;
+                line-height: 1;
                 text-align: center;
                 white-space: nowrap;
-
+                
                 pointer-events: none;
             `;
             videoArea.appendChild(toast);
@@ -1006,29 +1006,23 @@
     }
 
 
-    function showToast(videoArea, text) {
+    function showToast(videoArea, svg, text) {
         const toast = createToast(videoArea);
         toast.innerHTML = "";
         toast.style.display = "flex";
-        toast.appendChild(document.createTextNode(text));
-    }
+        
+        if (svg) {
+            const iconContainer = document.createElement("span");
+            iconContainer.innerHTML = svg;
+            iconContainer.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            `;
+            toast.appendChild(iconContainer);
+        }
 
-
-    function showIconToast(videoArea, svg, text) {
-        const toast = createToast(videoArea);
-        toast.innerHTML = "";
-        toast.style.display = "flex";
-
-        const iconContainer = document.createElement("span");
-        iconContainer.innerHTML = svg;
-        iconContainer.style.cssText = `
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        `;
-
-        toast.appendChild(iconContainer);
         toast.appendChild(document.createTextNode(text));
     }
 
@@ -1063,7 +1057,7 @@
                 display: none;
                 align-items: center;
                 justify-content: center;
-                border: 1px solid rgba(255, 255, 255, 0.36);
+                border: 1px solid rgba(255, 255, 255, 0.4);
                 border-radius: 999px;
 
                 color: #ffffff;
@@ -1077,9 +1071,8 @@
                 pointer-events: none;
                 user-select: none;
                 touch-action: manipulation;
-                transition: opacity ${Number(userSettings.btnExpandDuration)/1000}s ease, 
-                            transform ${Number(userSettings.btnExpandDuration)/1000}s ease, 
-                            background 0.16s ease;
+                transition: opacity ${Number(BUTTON_EXPAND_DURATION)/1000}s ease, 
+                            transform ${Number(BUTTON_EXPAND_DURATION)/1000}s ease; 
             `;
             
             button.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") keepCtrlVisible(videoArea); }, true);
@@ -1107,44 +1100,38 @@
     }
 
 
-    function updateButtonSize(videoArea) {
-        const buttonSize = videoArea.clientWidth * userSettings.btnSizeRatio / 100;
-        const buttonSide = videoArea.clientWidth * userSettings.btnSideRatio / 100;
+    function setButtonVisible(button, visible, offsetY = 0) {
+        clearTimeout(button.hideTimer);
+
+        if (visible) {
+            button.style.display = "flex";
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    button.style.opacity = "1";
+                    button.style.pointerEvents = "auto";
+                    button.style.transform = `translateY(calc(-50% + ${offsetY}px))`;
+                });
+            });
+        } else {
+            button.style.opacity = "0";
+            button.style.pointerEvents = "none";
+            button.style.transform = "translateY(-50%)";
+            button.hideTimer = setTimeout(() => { if (button.style.opacity === "0") button.style.display = "none"; }, BUTTON_EXPAND_DURATION);
+        }
+    }
+
+    
+    function updateButtons(videoArea) {
+        const buttonSize = isPlayerFullscreen(videoArea) ? FULLSCREEN_BUTTON_SIZE : BUTTON_SIZE;
+        const buttonSide = videoArea.clientWidth * 0.04;
+        const showMainButton = isLocked || !isCtrlHidden(videoArea);
 
         videoArea.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             button.style.width = `${buttonSize}px`;
             button.style.height = `${buttonSize}px`;
             button.style.left = LEFT_BUTTON_IDS.includes(button.id) ? `${buttonSide}px` : "";
             button.style.right = RIGHT_BUTTON_IDS.includes(button.id) ? `${buttonSide}px` : "";
-        });
-    }
 
-
-    function setButtonVisible(button, visible, offsetY = 0) {
-        if (!button) return;
-
-        if (visible) {
-            button.style.display = "flex";
-            requestAnimationFrame(() => {
-                button.style.opacity = "1";
-                button.style.pointerEvents = "auto";
-                button.style.transform = `translateY(calc(-50% + ${offsetY}px))`
-            });
-        } else {
-            button.style.opacity = "0";
-            button.style.pointerEvents = "none";
-            button.style.transform = "translateY(-50%)";
-            setTimeout(() => {
-                if (button.style.opacity === "0") button.style.display = "none";
-            }, userSettings.btnExpandDuration);
-        }
-    }
-
-    
-    function updateButtonState(videoArea) {
-        const showMainButton = isLocked || !isCtrlHidden(videoArea);
-
-        videoArea.querySelectorAll("." + BUTTON_CLASS).forEach((button) => {
             const isExpanded = expandedButtonIds.has(button.id);
             if (button.dataset.action == "lock") {
                 button.innerHTML = isLocked ? lockIcon : unlockIcon;
@@ -1154,17 +1141,17 @@
                 setButtonVisible(button, showMainButton);
             } else if (button.dataset.action == "backward") {
                 button.innerHTML = backwardIcon;
-                setButtonVisible(button, showMainButton && isExpanded, -videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
+                setButtonVisible(button, showMainButton && isExpanded, -buttonSize * 1.25);
             } else if (button.dataset.action == "forward") {
                 button.innerHTML = forwardIcon;
-                setButtonVisible(button, showMainButton && isExpanded, videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
+                setButtonVisible(button, showMainButton && isExpanded, buttonSize * 1.25);
             } else {
                 button.innerHTML = "";
                 setButtonVisible(button, false);
             }
         });
     }
-    
+
 
     function setupButtons(videoArea) {
         if (!videoArea) return;
@@ -1172,7 +1159,7 @@
         const leftAction = userSettings.leftButtonAction ?? DEFAULT_SETTINGS.leftButtonAction;
         const rightAction = userSettings.rightButtonAction ?? DEFAULT_SETTINGS.rightButtonAction;
 
-        if (isLocked && leftAction !== "lock" && rightAction !== "lock") isLocked = false;
+        if (isLocked && leftAction !== "lock" && rightAction !== "lock") { isLocked = false; shield.style.zIndex = "20"; }
         if (leftAction !== "menu") LEFT_BUTTON_IDS.forEach((id) => expandedButtonIds.delete(id));
         if (rightAction !== "menu") RIGHT_BUTTON_IDS.forEach((id) => expandedButtonIds.delete(id));
 
@@ -1182,8 +1169,7 @@
         createButton(videoArea, RIGHT_BUTTON_ID, rightAction);
         createButton(videoArea, RIGHT_BACKWARD_BUTTON_ID, "backward");
         createButton(videoArea, RIGHT_FORWARD_BUTTON_ID, "forward");
-        updateButtonSize(videoArea);
-        updateButtonState(videoArea);
+        updateButtons(videoArea);
     }
 
     // #endregion
@@ -1219,17 +1205,10 @@
 
     function onLockButtonClick(videoArea) {
         isLocked = !isLocked;
-
-        if (isLocked) {
-            finishCurrentGesture(videoArea);
-            shield.style.zIndex = 100000;
-            setupButtons(videoArea);
-            hideCtrl(videoArea);
-        } else {
-            shield.style.zIndex = 20;
-            setupButtons(videoArea);
-            showCtrl(videoArea);
-        }
+        if (isLocked) finishCurrentGesture(videoArea);
+        isLocked ? shield.style.zIndex = "100000" : shield.style.zIndex = "20";
+        isLocked ? hideCtrl(videoArea) : showCtrl(videoArea);
+        updateButtons(videoArea);
     }
 
     // #endregion
@@ -1242,34 +1221,19 @@
 
     function onMenuButtonClick(videoArea, button) {
         const buttonIds = button.id === LEFT_BUTTON_ID ? LEFT_BUTTON_IDS : RIGHT_BUTTON_IDS;
-        const [mainButtonId, backwardButtonId, forwardButtonId] = buttonIds;
-        const backwardButton = videoArea.querySelector("#" + backwardButtonId);
-        const forwardButton = videoArea.querySelector("#" + forwardButtonId);
-
-        if (expandedButtonIds.has(mainButtonId)) {
-            // 当前菜单展开 ⟶ 执行收起逻辑
-            buttonIds.forEach((id) => expandedButtonIds.delete(id));
-            button.innerHTML = menuIcon;
-            setButtonVisible(backwardButton, false);
-            setButtonVisible(forwardButton, false);
-        } else {
-            // 当前菜单收起 ⟶ 执行展开逻辑
-            buttonIds.forEach((id) => expandedButtonIds.add(id));
-            button.innerHTML = closeIcon;
-            updateButtonSize(videoArea);
-            setButtonVisible(backwardButton, true, -videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
-            setButtonVisible(forwardButton, true, videoArea.clientWidth * userSettings.btnSizeRatio / 100 * 1.25);
-        }
+        const method = expandedButtonIds.has(button.id) ? "delete" : "add";
+        buttonIds.forEach((id) => expandedButtonIds[method](id));
+        updateButtons(videoArea);
     }
 
-    
+
     function onQuickSeek(videoArea, seconds) {
         const video = videoArea.querySelector("video");
         if (!video) return;
         video.currentTime = clamp(video.currentTime + seconds, 0, video.duration);
 
-        showToast(videoArea, `${seconds > 0 ? "快进" : "快退"} ${Math.abs(seconds)}s`);
-        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
+        showToast(videoArea, "", `${seconds > 0 ? "快进" : "快退"} ${Math.abs(seconds)}s`);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), TOAST_DELAY);
     }
 
     // #endregion
@@ -1295,18 +1259,6 @@
     function isCtrlHidden(videoArea) {
         const playerContainer = videoArea.closest(".bpx-player-container");
         return playerContainer?.getAttribute("data-ctrl-hidden") === "true";
-    }
-
-
-    function bindCtrlObserver(videoArea) {
-        const playerContainer = videoArea.closest(".bpx-player-container");
-        if (playerContainer && currentPlayerContainer !== playerContainer) {
-            ctrlObserver?.disconnect();
-            currentPlayerContainer = playerContainer;
-
-            ctrlObserver = new MutationObserver(() => updateButtonState(videoArea));
-            ctrlObserver.observe(playerContainer, { attributes: true, attributeFilter: ["data-ctrl-hidden"] });
-        }
     }
 
 
@@ -1350,7 +1302,7 @@
         video.playbackRate = userSettings.targetSpeed;
         const targetSpeed = Number(userSettings.targetSpeed);
         const speedText = Number.isInteger(targetSpeed) ? targetSpeed.toFixed(1) : String(targetSpeed);
-        showIconToast(videoArea, speedIcon, speedText + "x");
+        showToast(videoArea, speedIcon, speedText + "x");
     }
 
 
@@ -1404,7 +1356,7 @@
         const previewTime = videoArea.querySelector(".bpx-player-progress-preview-time");
         if (previewTime) previewTime.textContent = formatTime(startVal);
 
-        showToast(videoArea, `${formatTime(startVal)} / ${formatTime(video.duration)}`);
+        showToast(videoArea, "", `${formatTime(startVal)} / ${formatTime(video.duration)}`);
     }
 
 
@@ -1447,12 +1399,12 @@
         prevY = clientY;
 
         video.style.filter = `brightness(${startVal})`;
-        showIconToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
+        showToast(videoArea, brightnessIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
     function onBrightnessEnd(videoArea) {
-        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), TOAST_DELAY);
     }
 
     // #endregion
@@ -1496,12 +1448,12 @@
             video.volume = 1;
             getGainNode(video).gain.value = startVal;
         }
-        showIconToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
+        showToast(videoArea, volumeIcon, `${Math.round(startVal * 100)}%`);
     }
 
 
     function onVolumeEnd(videoArea) {
-        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), userSettings.toastDelay);
+        toastTimer = resetTimeout(toastTimer, () => hideToast(videoArea), TOAST_DELAY);
     }
 
     // #endregion
@@ -1643,13 +1595,42 @@
 
 
     // ============================================================
+    // #region 结束页面
+    // ============================================================
+
+    const ENDING_INTERACTIVE_SELECTOR = [
+        "a",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "[role='button']",
+        "[data-action]",
+        ".bpx-player-ending-related",
+        ".bpx-player-relation-context-item"
+    ].join(",");
+
+
+    function setEndingPanel(e) {
+        if (e.target.closest(ENDING_INTERACTIVE_SELECTOR)) return;
+        blockNativeEvent(e);
+        isCtrlHidden(videoArea) ? showCtrl(videoArea) : hideCtrl(videoArea);
+    }
+
+    // #endregion
+
+
+
+    // ============================================================
     // #region 初始化
     // ============================================================
 
-    function createSafeShield() {
+    function init() {
+        // 查找视频区域
         videoArea = document.querySelector(".bpx-player-video-area");
         if (!videoArea) return;
 
+        // 创建手势遮罩层
         shield = videoArea.querySelector("#" + SHIELD_ID);
         if (!shield) {
             shield = document.createElement("div");
@@ -1674,33 +1655,48 @@
             shield.addEventListener("pointermove", (e) => { handleMove(e, videoArea); }, true);
             shield.addEventListener("pointerup", (e) => { handleUp(e, videoArea); shield.releasePointerCapture(e.pointerId); }, true);
             shield.addEventListener("pointercancel", (e) => { handleUp(e, videoArea); shield.releasePointerCapture(e.pointerId); }, true);
-
-            shield.addEventListener("contextmenu", blockNativeEvent, true);
+            
             shield.addEventListener("click", blockNativeEvent, true);
             shield.addEventListener("dblclick", blockNativeEvent, true);
             shield.addEventListener("auxclick", blockNativeEvent, true);
+            shield.addEventListener("contextmenu", blockNativeEvent, true);
         }
 
+        // 监听结束页手势
+        const endingWrap = videoArea.querySelector(".bpx-player-ending-wrap");
+        if (endingWrap && endingWrap.dataset.bteBound !== "true") {
+            endingWrap.addEventListener("click", setEndingPanel, true);
+            endingWrap.addEventListener("dblclick", blockNativeEvent, true);
+            endingWrap.addEventListener("auxclick", blockNativeEvent, true);
+            endingWrap.addEventListener("contextmenu", blockNativeEvent, true);
+            endingWrap.addEventListener("selectstart", blockNativeEvent, true);
+            endingWrap.dataset.bteBound = "true";
+        }
+
+        // 监听控制栏变化
+        const playerContainer = videoArea.closest(".bpx-player-container");
+        if (playerContainer && currentPlayerContainer !== playerContainer) {
+            ctrlObserver?.disconnect();
+            ctrlObserver = new MutationObserver(() => updateButtons(videoArea));
+            ctrlObserver.observe(playerContainer, { attributes: true, attributeFilter: ["data-screen", "data-ctrl-hidden"] });
+            currentPlayerContainer = playerContainer;
+        }
+
+        // 初始化侧边按钮
         setupButtons(videoArea);
-        bindCtrlObserver(videoArea)
     }
 
     
-    function scheduleCreateSafeShield() {
+    function scheduleInit() {
         if (shieldTimer) return;
-
-        shieldTimer = setTimeout(() => {
-            shieldTimer = null;
-            createSafeShield();
-        }, 200);
+        shieldTimer = setTimeout(() => { shieldTimer = null; init(); }, 200);
     }
 
 
-    const observer = new MutationObserver(scheduleCreateSafeShield);
+    const observer = new MutationObserver(scheduleInit);
     observer.observe(document.body, { childList: true, subtree: true });
-
-    window.addEventListener("load", createSafeShield);
-    createSafeShield();
+    window.addEventListener("load", init);
+    init();
 
     // #endregion
 
