@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         bilibili-touch-enhancer
 // @namespace    http://tampermonkey.net/
-// @version      1.9.5
+// @version      1.9.6
 // @description  给 B 站网页端视频播放器添加触屏手势，并提供可视化设置面板
 // @author       You
 // @match        *://*.bilibili.com/video/*
@@ -37,11 +37,23 @@
     const LEFT_BUTTON_IDS = [LEFT_BUTTON_ID, LEFT_BACKWARD_BUTTON_ID, LEFT_FORWARD_BUTTON_ID];
     const RIGHT_BUTTON_IDS = [RIGHT_BUTTON_ID, RIGHT_BACKWARD_BUTTON_ID, RIGHT_FORWARD_BUTTON_ID];
 
+    const ENDING_INTERACTIVE_SELECTOR = [
+        "a",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "[role='button']",
+        "[data-action]",
+        ".bpx-player-ending-related",
+        ".bpx-player-relation-context-item"
+    ].join(",");
+
     const FULLSCREEN_BUTTON_SIZE = 52;
     const BUTTON_SIZE = 40;
     const TOAST_DELAY = 500;
     const BUTTON_EXPAND_DURATION = 180;
-
+    
     const VERTICAL_ACTIONS = {
         none: "无操作",
         brightness: "调节亮度",
@@ -96,7 +108,6 @@
     let pressTimer = null;
     let clickTimer = null;
     let toastTimer = null;
-    let ctrlTimer = null;
     let shieldTimer = null;
     
     let startVal = 0;
@@ -706,12 +717,6 @@
         return setTimeout(callback, delay);
     }
 
-
-    function resetInterval(timer, callback, delay) {
-        clearInterval(timer);
-        return setInterval(callback, delay);
-    }
-
     // #endregion
 
 
@@ -1075,12 +1080,11 @@
                             transform ${Number(BUTTON_EXPAND_DURATION)/1000}s ease; 
             `;
             
-            button.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") keepCtrlVisible(videoArea); }, true);
-            button.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") stopCtrlVisible(); }, true);
             button.addEventListener("pointerdown", blockNativeEvent, true);
             button.addEventListener("pointerup", blockNativeEvent, true);
             button.addEventListener("click", (e) => {
                 blockNativeEvent(e);
+                showCtrl(videoArea);
                 if (button.dataset.action == "lock") {
                     onLockButtonClick(videoArea);
                 } else if (button.dataset.action == "menu") {
@@ -1259,22 +1263,6 @@
     function isCtrlHidden(videoArea) {
         const playerContainer = videoArea.closest(".bpx-player-container");
         return playerContainer?.getAttribute("data-ctrl-hidden") === "true";
-    }
-
-
-    function keepCtrlVisible(videoArea) {
-        if (isLocked) return clearInterval(ctrlTimer);
-
-        showCtrl(videoArea);
-        ctrlTimer = resetInterval(ctrlTimer, () => {
-            if (isLocked) return clearInterval(ctrlTimer);
-            showCtrl(videoArea);
-        }, 1000);
-    }
-
-
-    function stopCtrlVisible() {
-        clearInterval(ctrlTimer);
     }
 
     // #endregion
@@ -1595,33 +1583,6 @@
 
 
     // ============================================================
-    // #region 结束页面
-    // ============================================================
-
-    const ENDING_INTERACTIVE_SELECTOR = [
-        "a",
-        "button",
-        "input",
-        "textarea",
-        "select",
-        "[role='button']",
-        "[data-action]",
-        ".bpx-player-ending-related",
-        ".bpx-player-relation-context-item"
-    ].join(",");
-
-
-    function setEndingPanel(e) {
-        if (e.target.closest(ENDING_INTERACTIVE_SELECTOR)) return;
-        blockNativeEvent(e);
-        isCtrlHidden(videoArea) ? showCtrl(videoArea) : hideCtrl(videoArea);
-    }
-
-    // #endregion
-
-
-
-    // ============================================================
     // #region 初始化
     // ============================================================
 
@@ -1665,7 +1626,14 @@
         // 监听结束页手势
         const endingWrap = videoArea.querySelector(".bpx-player-ending-wrap");
         if (endingWrap && endingWrap.dataset.bteBound !== "true") {
-            endingWrap.addEventListener("click", setEndingPanel, true);
+            endingWrap.addEventListener("pointerdown", (e) => {
+                blockNativeEvent(e);
+                isCtrlHidden(videoArea) ? showCtrl(videoArea) : hideCtrl(videoArea);
+            }, true);
+            endingWrap.addEventListener("click", (e) => {
+                if (e.target.closest(ENDING_INTERACTIVE_SELECTOR)) return;
+                blockNativeEvent(e);
+            }, true);
             endingWrap.addEventListener("dblclick", blockNativeEvent, true);
             endingWrap.addEventListener("auxclick", blockNativeEvent, true);
             endingWrap.addEventListener("contextmenu", blockNativeEvent, true);
